@@ -1,0 +1,14 @@
+{
+  "rules": {
+    "live_location": {
+      // Anyone authenticated (e.g., students) can read live tracking data
+      ".read": "auth != null",
+      
+      "$busId": {
+        // Relaxed rule: allow any authenticated user to write.
+        // In a production app, use Cloud Functions to set a custom 'driver' token claim.
+        ".write": "auth != null"
+      }
+    }
+  }
+}

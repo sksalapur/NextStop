@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUserAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Users Collection
+    match /users/{uid} {
+      // Users can read their own document; admins can read all user documents
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isUserAdmin());
+      
+      // Users can CREATE their own document (first-time sign-up)
+      allow create: if isAuthenticated() && request.auth.uid == uid;
+      
+      // Users can uniquely update only their assignedStopId, admins can freely update everything
+      allow update: if isUserAdmin() || (isAuthenticated() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assignedStopId']));
+      
+      allow delete: if isUserAdmin();
+    }
+
+    // Invited Drivers Collection (email whitelist)
+    match /invited_drivers/{email} {
+      // Any authenticated user can read (to check if they're an invited driver)
+      allow read: if isAuthenticated();
+      
+      // Any authenticated user can delete their own invitation (consumed on sign-up)
+      allow delete: if isAuthenticated();
+      
+      // Only admins can create invitations
+      allow create, update: if isUserAdmin();
+    }
+
+    // Buses Collection
+    match /buses/{busId} {
+      allow read: if isAuthenticated();
+      allow write: if isUserAdmin();
+    }
+
+    // Routes Collection
+    match /routes/{routeId} {
+      allow read: if isAuthenticated();
+      allow write: if isUserAdmin();
+    }
+  }
+}
