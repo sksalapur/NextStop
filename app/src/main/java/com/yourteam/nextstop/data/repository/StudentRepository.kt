@@ -59,20 +59,8 @@ class StudentRepository @Inject constructor(
     }
 
     /**
-     * Finds the bus assigned to the given route.
-     * Queries the buses collection where routeId matches.
+     * (Removed getBusForRoute since route handles bus mapping now)
      */
-    suspend fun getBusForRoute(routeId: String): Bus? {
-        val querySnapshot = firestore.collection("buses")
-            .whereEqualTo("routeId", routeId)
-            .limit(1)
-            .get()
-            .await()
-
-        return if (querySnapshot.documents.isNotEmpty()) {
-            querySnapshot.documents[0].toObject(Bus::class.java)
-        } else null
-    }
 
     /**
      * Observes the live location of a bus in the Realtime Database

@@ -9,8 +9,14 @@ data class Route(
     @DocumentId
     val routeId: String = "",
     val name: String = "",
+    val direction: String = "", // "from_college" or "to_college"
+    val busId: String = "",
+    val departureTime: String = "",
+    val assignedDriverId: String? = null,
     val startName: String = "",
     val endName: String = "",
+    val endLat: Double = 0.0,
+    val endLng: Double = 0.0,
     val stops: List<Stop> = emptyList()
 )
 

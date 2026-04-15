@@ -39,6 +39,7 @@ fun SharedTrackerScreen(
     isBusActive: Boolean,
     assignedStopId: String? = null,
     boardingEtaMinutes: Int? = null,
+    passedStopIds: Set<String> = emptySet(),
     onStopSelected: ((String, String) -> Unit)? = null, // Passes ID and Name
     modifier: Modifier = Modifier
 ) {
@@ -93,7 +94,7 @@ fun SharedTrackerScreen(
                         tint = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Next Stop",
                             style = MaterialTheme.typography.labelSmall,
@@ -102,23 +103,28 @@ fun SharedTrackerScreen(
                         Text(
                             text = nextStopName.ifEmpty { "—" },
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                     
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
                     Text(
                         text = if (etaMinutes > 0) "$etaMinutes min" else "—",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
-                // Distinct Boarding ETA Display Block
+                // Distinct My Stop ETA Display Block
                 if (assignedStopId != null) {
                     val assignedStopName = routeStops.find { it.stopId == assignedStopId }?.stopName ?: "Unknown"
+                    val isPassed = passedStopIds.contains(assignedStopId)
 
                     Spacer(modifier = Modifier.height(12.dp))
                     
@@ -126,7 +132,8 @@ fun SharedTrackerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = MaterialTheme.colorScheme.primaryContainer,
+                                color = if (isPassed) MaterialTheme.colorScheme.surfaceVariant
+                                        else MaterialTheme.colorScheme.primaryContainer,
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -136,30 +143,44 @@ fun SharedTrackerScreen(
                             imageVector = Icons.Default.DirectionsBus,
                             contentDescription = null,
                             modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            tint = if (isPassed) MaterialTheme.colorScheme.outline
+                                   else MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "My Stop",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                color = if (isPassed) MaterialTheme.colorScheme.outline
+                                        else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
                             Text(
                                 text = assignedStopName,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (isPassed) MaterialTheme.colorScheme.outline
+                                        else MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                         
-                        Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.width(12.dp))
                         
                         Text(
-                            text = if (boardingEtaMinutes != null && boardingEtaMinutes > 0) "$boardingEtaMinutes min" else "—",
+                            text = when {
+                                isPassed || boardingEtaMinutes == -1 -> "Passed"
+                                boardingEtaMinutes != null && boardingEtaMinutes >= 0 -> "$boardingEtaMinutes min"
+                                else -> "—"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            maxLines = 1,
+                            softWrap = false,
+                            color = when {
+                                isPassed || boardingEtaMinutes == -1 -> MaterialTheme.colorScheme.outline
+                                else -> MaterialTheme.colorScheme.onPrimaryContainer
+                            }
                         )
                     }
                 }
@@ -181,6 +202,7 @@ fun SharedTrackerScreen(
                     BoardingStopSelector(
                         routeStops = routeStops,
                         selectedStopName = selectedStopName,
+                        passedStopIds = passedStopIds,
                         onStopSelected = onStopSelected
                     )
                 }
@@ -211,9 +233,13 @@ fun SharedTrackerScreen(
 private fun BoardingStopSelector(
     routeStops: List<Stop>,
     selectedStopName: String,
+    passedStopIds: Set<String>,
     onStopSelected: (String, String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+
+    // Only show upcoming stops that the bus hasn't passed yet
+    val upcomingStops = routeStops.sortedBy { it.order }.filter { it.stopId !in passedStopIds }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -233,14 +259,22 @@ private fun BoardingStopSelector(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            routeStops.sortedBy { it.order }.forEach { stop ->
+            if (upcomingStops.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text(stop.stopName) },
-                    onClick = {
-                        onStopSelected(stop.stopId, stop.stopName)
-                        expanded = false
-                    }
+                    text = { Text("All stops have been passed", color = MaterialTheme.colorScheme.outline) },
+                    onClick = { expanded = false },
+                    enabled = false
                 )
+            } else {
+                upcomingStops.forEach { stop ->
+                    DropdownMenuItem(
+                        text = { Text(stop.stopName) },
+                        onClick = {
+                            onStopSelected(stop.stopId, stop.stopName)
+                            expanded = false
+                        }
+                    )
+                }
             }
         }
     }
@@ -314,13 +348,16 @@ fun BusTrackingMap(
 
         // Draw Stop Pins
         routeStops.forEach { stop ->
+            val isEndpoint = stop.stopId.startsWith("endpoint_")
             Marker(
                 state = MarkerState(
                     position = LatLng(stop.latitude, stop.longitude)
                 ),
-                title = stop.stopName,
-                snippet = "Stop #${stop.order}",
-                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                title = if (isEndpoint) "Final Destination: ${stop.stopName}" else stop.stopName,
+                snippet = if (isEndpoint) "Drop off point" else "Stop #${stop.order}",
+                icon = BitmapDescriptorFactory.defaultMarker(
+                    if (isEndpoint) BitmapDescriptorFactory.HUE_GREEN else BitmapDescriptorFactory.HUE_RED
+                )
             )
         }
 

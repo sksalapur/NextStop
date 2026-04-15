@@ -3,14 +3,10 @@ package com.yourteam.nextstop.models
 import com.google.firebase.firestore.DocumentId
 
 /**
- * Represents a bus in the fleet.
- * Status can be: "active" or "inactive"
+ * Registry of physical buses in the fleet.
  */
 data class Bus(
     @DocumentId
     val busId: String = "",
-    val busNumber: String = "",
-    val routeId: String = "",
-    val assignedDriverId: String? = null,
-    val status: String = "inactive"
+    val busNumber: String = ""
 )

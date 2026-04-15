@@ -2,12 +2,16 @@ package com.yourteam.nextstop.ui.components
 
 import android.content.Context
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.AutocompletePrediction
@@ -34,15 +39,23 @@ fun CustomPlacesSearchField(
     value: String,
     onPlaceSelected: (PlaceResult) -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "Search location..."
+    label: String = "Search location...",
+    clearAfterSelect: Boolean = true,
+    onClear: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    var query by remember { mutableStateOf(value) }
+    var query by remember(value) { mutableStateOf(value) }
     var expanded by remember { mutableStateOf(false) }
     var predictions by remember { mutableStateOf<List<AutocompletePrediction>>(emptyList()) }
+    // Track whether the user just selected a place to avoid re-querying
+    var justSelected by remember { mutableStateOf(false) }
 
     // Ensures we only query Google Places after the user stops typing for 600ms
     LaunchedEffect(query) {
+        if (justSelected) {
+            justSelected = false
+            return@LaunchedEffect
+        }
         if (query.isBlank()) {
             predictions = emptyList()
             expanded = false
@@ -85,10 +98,22 @@ fun CustomPlacesSearchField(
             value = query,
             onValueChange = {
                 query = it
-                expanded = true
+                if (it.isNotBlank()) expanded = true
             },
             label = { Text(label) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            trailingIcon = {
+                if (query.isNotBlank()) {
+                    IconButton(onClick = {
+                        query = ""
+                        predictions = emptyList()
+                        expanded = false
+                        onClear?.invoke()
+                    }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear")
+                    }
+                }
+            },
             modifier = Modifier.menuAnchor().fillMaxWidth(),
             singleLine = true
         )
@@ -96,21 +121,33 @@ fun CustomPlacesSearchField(
         if (predictions.isNotEmpty()) {
             ExposedDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false }
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 200.dp)
             ) {
-                predictions.forEach { prediction ->
+                predictions.take(5).forEachIndexed { index, prediction ->
                     DropdownMenuItem(
-                        text = { Text(prediction.getFullText(null).toString()) },
+                        text = { 
+                            Text(
+                                text = prediction.getFullText(null).toString(),
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            ) 
+                        },
                         onClick = {
                             expanded = false
-                            query = "" // Clear the search bar after picking
-                            fetchPlaceDetails(context, prediction.placeId, prediction.getFullText(null).toString()) { placeResult ->
+                            predictions = emptyList()
+                            val fullText = prediction.getFullText(null).toString()
+                            justSelected = true
+                            query = if (clearAfterSelect) "" else fullText
+                            fetchPlaceDetails(context, prediction.placeId, fullText) { placeResult ->
                                 if (placeResult != null) {
                                     onPlaceSelected(placeResult)
                                 }
                             }
                         }
                     )
+                    if (index < predictions.take(5).size - 1) {
+                        androidx.compose.material3.HorizontalDivider()
+                    }
                 }
             }
         }

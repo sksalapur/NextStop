@@ -8,7 +8,7 @@ import android.os.IBinder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourteam.nextstop.data.repository.DriverRepository
-import com.yourteam.nextstop.models.Bus
+import com.yourteam.nextstop.models.Route
 import com.yourteam.nextstop.models.TripState
 import com.yourteam.nextstop.service.LocationForegroundService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,9 +25,9 @@ import javax.inject.Inject
  */
 data class DriverUiState(
     val isLoading: Boolean = true,
-    val assignedBusId: String? = null,
-    val bus: Bus? = null,
+    val assignedRoutes: List<Route> = emptyList(),
     val tripState: TripState = TripState.Stopped,
+    val activeRouteId: String? = null,
     val errorMessage: String? = null
 )
 
@@ -53,7 +53,12 @@ class DriverViewModel @Inject constructor(
             // Observe service trip state and mirror it to our UI state
             viewModelScope.launch {
                 localBinder.getService().tripState.collectLatest { tripState ->
+                    // Currently, the service tracks one bus at a time.
+                    // We assume that the active route is the one we started.
                     _uiState.value = _uiState.value.copy(tripState = tripState)
+                    if (tripState == TripState.Stopped) {
+                        _uiState.value = _uiState.value.copy(activeRouteId = null)
+                    }
                 }
             }
         }
@@ -65,45 +70,28 @@ class DriverViewModel @Inject constructor(
     }
 
     init {
-        loadDriverInfo()
+        observeAssignedRoutes()
         bindToServiceIfRunning()
     }
 
     /**
-     * Fetch the driver's assigned bus info from Firestore.
+     * Observe the driver's assigned routes in real-time.
      */
-    private fun loadDriverInfo() {
+    private fun observeAssignedRoutes() {
         viewModelScope.launch {
-            try {
-                val uid = driverRepository.getCurrentUid()
-                if (uid == null) {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        errorMessage = "Not signed in"
-                    )
-                    return@launch
-                }
-
-                val busId = driverRepository.getAssignedBusId(uid)
-                if (busId == null) {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        assignedBusId = null,
-                        bus = null
-                    )
-                    return@launch
-                }
-
-                val bus = driverRepository.getBus(busId)
+            val uid = driverRepository.getCurrentUid()
+            if (uid == null) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    assignedBusId = busId,
-                    bus = bus
+                    errorMessage = "Not signed in"
                 )
-            } catch (e: Exception) {
+                return@launch
+            }
+
+            driverRepository.observeAssignedRoutes(uid).collectLatest { routes ->
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = e.message ?: "Failed to load driver info"
+                    assignedRoutes = routes
                 )
             }
         }
@@ -111,24 +99,23 @@ class DriverViewModel @Inject constructor(
 
     /**
      * Try binding to an already-running service instance
-     * (handles the case where app was backgrounded and reopened).
      */
     private fun bindToServiceIfRunning() {
         val intent = Intent(appContext, LocationForegroundService::class.java)
-        appContext.bindService(intent, serviceConnection, 0) // flags=0 → don't auto-create
+        appContext.bindService(intent, serviceConnection, 0)
     }
 
     /**
-     * Start GPS tracking for the assigned bus.
+     * Start GPS tracking for a specific assigned route (which targets its associated bus).
      */
-    fun startTrip() {
-        val busId = _uiState.value.assignedBusId ?: return
-
+    fun startTrip(route: Route) {
         val intent = Intent(appContext, LocationForegroundService::class.java).apply {
             action = LocationForegroundService.ACTION_START
-            putExtra(LocationForegroundService.EXTRA_BUS_ID, busId)
+            putExtra(LocationForegroundService.EXTRA_ROUTE_ID, route.routeId)
         }
         appContext.startForegroundService(intent)
+
+        _uiState.value = _uiState.value.copy(activeRouteId = route.routeId)
 
         // Bind to get live state updates
         appContext.bindService(
@@ -147,7 +134,10 @@ class DriverViewModel @Inject constructor(
         }
         appContext.startService(intent)
 
-        _uiState.value = _uiState.value.copy(tripState = TripState.Stopped)
+        _uiState.value = _uiState.value.copy(
+            tripState = TripState.Stopped,
+            activeRouteId = null
+        )
     }
 
     override fun onCleared() {

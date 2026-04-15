@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourteam.nextstop.data.repository.AdminRepository
 import com.yourteam.nextstop.models.Bus
+import com.yourteam.nextstop.models.CollegeLocation
 import com.yourteam.nextstop.models.LiveLocation
 import com.yourteam.nextstop.models.Route
 import com.yourteam.nextstop.models.User
@@ -21,6 +22,9 @@ class AdminViewModel @Inject constructor(
 
     // ─── State Flows ──────────────────────────────────────────────────
 
+    val collegeLocation: StateFlow<CollegeLocation?> = repository.observeCollegeLocation()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val buses: StateFlow<List<Bus>> = repository.observeBuses()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -35,13 +39,47 @@ class AdminViewModel @Inject constructor(
 
     // ─── Operations ───────────────────────────────────────────────────
 
-    /**
-     * Batch assigns a driver to a bus, clearing the old driver if applicable.
-     */
-    fun assignDriver(busId: String, newDriverUid: String, oldDriverUid: String?, onResult: (Boolean, String) -> Unit) {
+    fun updateCollegeLocation(location: CollegeLocation, onResult: (Boolean, String) -> Unit) {
+        if (location.name.isBlank()) {
+            onResult(false, "Location name cannot be blank")
+            return
+        }
         viewModelScope.launch {
             try {
-                repository.assignDriverToBus(busId, newDriverUid, oldDriverUid)
+                repository.setCollegeLocation(location)
+                onResult(true, "College location updated")
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Failed to update location")
+            }
+        }
+    }
+
+    /**
+     * Assigns a driver to a specific route. Enforces validation so a driver
+     * cannot be assigned to two routes with the exact same departure time.
+     */
+    fun assignDriver(routeId: String, newDriverUid: String, onResult: (Boolean, String) -> Unit) {
+        val targetRoute = routes.value.find { it.routeId == routeId }
+        if (targetRoute == null) {
+            onResult(false, "Route not found")
+            return
+        }
+
+        // Validate time conflict: Is this driver already assigned to another route at the EXACT same time?
+        val timeConflict = routes.value.any { 
+            it.assignedDriverId == newDriverUid && 
+            it.routeId != routeId && 
+            it.departureTime == targetRoute.departureTime
+        }
+
+        if (timeConflict) {
+            onResult(false, "Driver is already scheduled for another route at ${targetRoute.departureTime}")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                repository.assignDriverToRoute(routeId, newDriverUid)
                 onResult(true, "Driver assigned successfully")
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Failed to assign driver")
@@ -49,13 +87,21 @@ class AdminViewModel @Inject constructor(
         }
     }
 
+    fun unassignDriver(routeId: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.unassignDriverFromRoute(routeId)
+                onResult(true, "Driver unassigned")
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Failed to unassign driver")
+            }
+        }
+    }
+
     /**
-     * Tries to add a new bus. Enforces validation rules:
-     * 1. Not empty
-     * 2. 3-15 chars
-     * 3. Unique bus number
+     * Adds a new bus just by its number.
      */
-    fun addBus(busNumber: String, routeId: String, onResult: (Boolean, String) -> Unit) {
+    fun addBus(busNumber: String, onResult: (Boolean, String) -> Unit) {
         val normalizedNumber = busNumber.trim()
         
         if (normalizedNumber.isEmpty()) {
@@ -67,7 +113,7 @@ class AdminViewModel @Inject constructor(
             return
         }
         
-        // Uniqueness check using current snapshot flow state
+        // Uniqueness check
         val isDuplicate = buses.value.any { it.busNumber.equals(normalizedNumber, ignoreCase = true) }
         if (isDuplicate) {
             onResult(false, "Bus number '$normalizedNumber' already exists")
@@ -76,15 +122,38 @@ class AdminViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val newBus = Bus(
-                    busNumber = normalizedNumber,
-                    routeId = routeId,
-                    status = "inactive"
-                )
+                val newBus = Bus(busNumber = normalizedNumber)
                 repository.addBus(newBus)
                 onResult(true, "Bus added successfully")
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Failed to add bus")
+            }
+        }
+    }
+
+    fun updateBus(busId: String, busNumber: String, onResult: (Boolean, String) -> Unit) {
+        val normalizedNumber = busNumber.trim()
+        if (normalizedNumber.isEmpty() || normalizedNumber.length !in 3..15) {
+            onResult(false, "Invalid bus number")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                repository.updateBus(busId, normalizedNumber)
+                onResult(true, "Bus updated successfully")
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Failed to update bus")
+            }
+        }
+    }
+
+    fun deleteBus(busId: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.deleteBus(busId)
+                onResult(true, "Bus deleted successfully")
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Failed to delete bus")
             }
         }
     }
@@ -101,6 +170,10 @@ class AdminViewModel @Inject constructor(
             onResult(false, "Route must have at least one stop")
             return
         }
+        if (route.busId.isBlank()) {
+            onResult(false, "Please assign a bus to this route")
+            return
+        }
 
         viewModelScope.launch {
             try {
@@ -108,22 +181,6 @@ class AdminViewModel @Inject constructor(
                 onResult(true, "Route added successfully")
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Failed to add route")
-            }
-        }
-    }
-
-    fun updateBus(busId: String, busNumber: String, routeId: String, onResult: (Boolean, String) -> Unit) {
-        val normalizedNumber = busNumber.trim()
-        if (normalizedNumber.isEmpty() || normalizedNumber.length !in 3..15) {
-            onResult(false, "Invalid bus number")
-            return
-        }
-        viewModelScope.launch {
-            try {
-                repository.updateBus(busId, normalizedNumber, routeId)
-                onResult(true, "Bus updated successfully")
-            } catch (e: Exception) {
-                onResult(false, e.message ?: "Failed to update bus")
             }
         }
     }
@@ -154,17 +211,6 @@ class AdminViewModel @Inject constructor(
         }
     }
 
-    fun deleteBus(busId: String, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            try {
-                repository.deleteBus(busId)
-                onResult(true, "Bus deleted successfully")
-            } catch (e: Exception) {
-                onResult(false, e.message ?: "Failed to delete bus")
-            }
-        }
-    }
-
     fun deleteDriver(driverUid: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             try {
@@ -187,9 +233,6 @@ class AdminViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Invite a new driver by email via the whitelisting system.
-     */
     fun inviteDriver(email: String, onResult: (Boolean, String) -> Unit) {
         if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
             onResult(false, "Please enter a valid email address")

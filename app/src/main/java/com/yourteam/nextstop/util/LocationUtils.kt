@@ -95,6 +95,43 @@ object LocationUtils {
     }
 
     /**
+     * Returns the set of stop IDs that the bus has already passed.
+     * A stop is "passed" if its order is less than or equal to the closest stop's order
+     * when the bus is within 150m, or strictly less than the closest stop's order otherwise.
+     */
+    fun getPassedStopIds(
+        busLat: Double,
+        busLon: Double,
+        stops: List<Stop>
+    ): Set<String> {
+        if (stops.isEmpty()) return emptySet()
+
+        val sortedStops = stops.sortedBy { it.order }
+
+        val closestStop = sortedStops.minByOrNull { stop ->
+            haversineKm(busLat, busLon, stop.latitude, stop.longitude)
+        } ?: return emptySet()
+
+        val closestDistance = haversineKm(
+            busLat, busLon,
+            closestStop.latitude, closestStop.longitude
+        )
+
+        // If bus is very close to the closest stop (<150m), that stop and all before it are passed
+        val passedOrder = if (closestDistance < 0.15) {
+            closestStop.order
+        } else {
+            // Bus is between stops — everything before the closest stop is passed
+            closestStop.order - 1
+        }
+
+        return sortedStops
+            .filter { it.order <= passedOrder }
+            .map { it.stopId }
+            .toSet()
+    }
+
+    /**
      * Formats a connection status string based on the last location timestamp.
      */
     fun connectionStatus(location: LiveLocation?): String {

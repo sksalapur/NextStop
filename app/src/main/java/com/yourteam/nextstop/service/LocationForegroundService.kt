@@ -41,7 +41,7 @@ class LocationForegroundService : Service() {
     companion object {
         const val ACTION_START = "ACTION_START_TRACKING"
         const val ACTION_STOP = "ACTION_STOP_TRACKING"
-        const val EXTRA_BUS_ID = "EXTRA_BUS_ID"
+        const val EXTRA_ROUTE_ID = "EXTRA_ROUTE_ID"
 
         private const val NOTIFICATION_CHANNEL_ID = "nextstop_tracking_channel"
         private const val NOTIFICATION_ID = 1001
@@ -66,7 +66,7 @@ class LocationForegroundService : Service() {
     // Location
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
-    private var currentBusId: String? = null
+    private var currentRouteId: String? = null
 
     // ─── Binder ──────────────────────────────────────────────────────
 
@@ -88,9 +88,9 @@ class LocationForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                val busId = intent.getStringExtra(EXTRA_BUS_ID)
-                if (busId != null) {
-                    startTracking(busId)
+                val routeId = intent.getStringExtra(EXTRA_ROUTE_ID)
+                if (routeId != null) {
+                    startTracking(routeId)
                 }
             }
             ACTION_STOP -> {
@@ -107,19 +107,15 @@ class LocationForegroundService : Service() {
 
     // ─── Tracking ────────────────────────────────────────────────────
 
-    private fun startTracking(busId: String) {
-        currentBusId = busId
+    private fun startTracking(routeId: String) {
+        currentRouteId = routeId
         _isTracking.value = true
 
         // Start as foreground
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // Mark bus as active in Firestore
-        serviceScope.launch {
-            try {
-                driverRepository.setBusStatus(busId, true)
-            } catch (_: Exception) { /* best effort */ }
-        }
+        // Mark bus as active in Firestore via RTDB (legacy Firestore status removed)
+        // Active status is inferred from Realtime Database LiveLocation
 
         // Request location updates
         val locationRequest = LocationRequest.Builder(
@@ -142,19 +138,18 @@ class LocationForegroundService : Service() {
     private fun stopTracking() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val busId = currentBusId
-        if (busId != null) {
+        val routeId = currentRouteId
+        if (routeId != null) {
             serviceScope.launch {
                 try {
-                    driverRepository.clearLiveLocation(busId)
-                    driverRepository.setBusStatus(busId, false)
+                    driverRepository.clearLiveLocation(routeId)
                 } catch (_: Exception) { /* best effort */ }
             }
         }
 
         _isTracking.value = false
         _tripState.value = TripState.Stopped
-        currentBusId = null
+        currentRouteId = null
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -166,7 +161,7 @@ class LocationForegroundService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
-                val busId = currentBusId ?: return
+                val routeId = currentRouteId ?: return
 
                 // Calculate valid speed, ignoring < 0.5f m/s (1.8 km/h) noise
                 val validSpeed = if (location.hasSpeed() && location.speed > 0.5f) location.speed else 0f
@@ -191,7 +186,7 @@ class LocationForegroundService : Service() {
 
                 serviceScope.launch {
                     try {
-                        driverRepository.updateLiveLocation(busId, liveLocation)
+                        driverRepository.updateLiveLocation(routeId, liveLocation)
                     } catch (_: Exception) { /* best effort, will retry on next update */ }
                 }
             }

@@ -17,8 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AssignmentInd
-import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,7 +33,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,30 +44,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourteam.nextstop.models.Bus
+import com.yourteam.nextstop.models.Route
 import com.yourteam.nextstop.models.User
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminAssignmentsTab(viewModel: AdminViewModel) {
+    val routes by viewModel.routes.collectAsState()
     val buses by viewModel.buses.collectAsState()
     val drivers by viewModel.drivers.collectAsState()
     val liveLocations by viewModel.liveLocations.collectAsState()
-
-    val unassignedDrivers = drivers.filter { it.assignedBusId.isNullOrEmpty() }
     
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
     var showBottomSheet by remember { mutableStateOf(false) }
-    var selectedBusToAssign by remember { mutableStateOf<Bus?>(null) }
+    var selectedRouteToAssign by remember { mutableStateOf<Route?>(null) }
     
     val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
-        if (buses.isEmpty()) {
-            EmptyStateMessage("No buses found. Add a bus in the Manage tab.")
+        if (routes.isEmpty()) {
+            EmptyStateMessage("No routes found. Add a route in the Manage tab.")
             return@Scaffold
         }
 
@@ -79,25 +78,68 @@ fun AdminAssignmentsTab(viewModel: AdminViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(buses, key = { it.busId }) { bus ->
-                val currentDriver = drivers.find { it.uid == bus.assignedDriverId }
-                val isActive = liveLocations[bus.busId]?.active == true
+            val fromCollege = routes.filter { it.direction == "from_college" }.sortedBy { it.departureTime }
+            val toCollege = routes.filter { it.direction == "to_college" }.sortedBy { it.departureTime }
 
-                AssignmentCard(
-                    bus = bus,
-                    currentDriver = currentDriver,
-                    isActive = isActive,
-                    onAssignClick = {
-                        selectedBusToAssign = bus
-                        showBottomSheet = true
-                    }
-                )
+            if (fromCollege.isNotEmpty()) {
+                item {
+                    Text("From College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                items(fromCollege, key = { it.routeId }) { route ->
+                    val currentDriver = drivers.find { it.uid == route.assignedDriverId }
+                    val busAssigned = buses.find { it.busId == route.busId }
+                    val isActive = liveLocations[route.routeId]?.active == true
+                    
+                    AssignmentCard(
+                        route = route,
+                        bus = busAssigned,
+                        currentDriver = currentDriver,
+                        isActive = isActive,
+                        onAssignClick = {
+                            selectedRouteToAssign = route
+                            showBottomSheet = true
+                        }
+                    )
+                }
+            }
+            
+            if (toCollege.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("To College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                items(toCollege, key = { it.routeId }) { route ->
+                    val currentDriver = drivers.find { it.uid == route.assignedDriverId }
+                    val busAssigned = buses.find { it.busId == route.busId }
+                    val isActive = liveLocations[route.routeId]?.active == true
+                    
+                    AssignmentCard(
+                        route = route,
+                        bus = busAssigned,
+                        currentDriver = currentDriver,
+                        isActive = isActive,
+                        onAssignClick = {
+                            selectedRouteToAssign = route
+                            showBottomSheet = true
+                        }
+                    )
+                }
             }
         }
     }
 
     if (showBottomSheet) {
-        val busTitle = selectedBusToAssign?.busNumber ?: ""
+        val routeTitle = selectedRouteToAssign?.name ?: ""
+        val currentRouteDriverId = selectedRouteToAssign?.assignedDriverId
+        
+        // Find drivers available to take this specific route (they aren't busy at the exact same specific departure time)
+        val targetDepartureTime = selectedRouteToAssign?.departureTime
+        val availableDrivers = drivers.filter { driver ->
+            // A driver is available if they are the current driver for this very route,
+            // or if they do not have any other route assigned to them at the SAME departureTime.
+            driver.uid == currentRouteDriverId || routes.none { it.assignedDriverId == driver.uid && it.departureTime == targetDepartureTime }
+        }
+
         ModalBottomSheet(
             onDismissRequest = { showBottomSheet = false },
             sheetState = sheetState
@@ -109,21 +151,44 @@ fun AdminAssignmentsTab(viewModel: AdminViewModel) {
                     .padding(bottom = 32.dp)
             ) {
                 Text(
-                    text = "Assign Driver to Bus $busTitle",
+                    text = "Assign Driver to Route: $routeTitle",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
 
-                if (unassignedDrivers.isEmpty()) {
+                if (availableDrivers.isEmpty()) {
                     Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("No unassigned drivers available.", color = MaterialTheme.colorScheme.outline)
+                        Text("No free drivers available for this time slot.", color = MaterialTheme.colorScheme.outline)
                     }
                 } else {
                     LazyColumn {
-                        items(unassignedDrivers) { driver ->
+                        item {
+                            if (currentRouteDriverId != null) {
+                                ListItem(
+                                    headlineContent = { Text("Unassign Current Driver", color = MaterialTheme.colorScheme.error) },
+                                    leadingContent = { Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                    modifier = Modifier.clickable {
+                                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                            selectedRouteToAssign?.let { route ->
+                                                viewModel.unassignDriver(route.routeId) { _, msg ->
+                                                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                                                }
+                                            }
+                                            showBottomSheet = false
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        items(availableDrivers) { driver ->
                             ListItem(
                                 headlineContent = { Text(driver.name) },
+                                supportingContent = {
+                                    if (driver.uid == currentRouteDriverId) {
+                                        Text("Currently assigned", color = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
                                 leadingContent = {
                                     Icon(Icons.Default.Person, contentDescription = null)
                                 },
@@ -133,11 +198,10 @@ fun AdminAssignmentsTab(viewModel: AdminViewModel) {
                                             showBottomSheet = false
                                             
                                             // Perform assignment
-                                            selectedBusToAssign?.let { bus ->
+                                            selectedRouteToAssign?.let { route ->
                                                 viewModel.assignDriver(
-                                                    busId = bus.busId,
-                                                    newDriverUid = driver.uid,
-                                                    oldDriverUid = bus.assignedDriverId
+                                                    routeId = route.routeId,
+                                                    newDriverUid = driver.uid
                                                 ) { success, message ->
                                                     scope.launch {
                                                         snackbarHostState.showSnackbar(message)
@@ -158,7 +222,8 @@ fun AdminAssignmentsTab(viewModel: AdminViewModel) {
 
 @Composable
 fun AssignmentCard(
-    bus: Bus,
+    route: Route,
+    bus: Bus?,
     currentDriver: User?,
     isActive: Boolean,
     onAssignClick: () -> Unit
@@ -176,14 +241,14 @@ fun AssignmentCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.DirectionsBus,
+                        imageVector = Icons.Default.Route,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Bus ${bus.busNumber}",
+                        text = route.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -200,6 +265,12 @@ fun AssignmentCard(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = "Time: ${route.departureTime} | Bus ${bus?.busNumber ?: "?"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -222,7 +293,7 @@ fun AssignmentCard(
 
                 Button(
                     onClick = onAssignClick,
-                    enabled = !isActive // Disable reassignment if the bus is currently live
+                    enabled = !isActive // Disable reassignment if the physical bus for this route is currently live
                 ) {
                     Icon(Icons.Default.AssignmentInd, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))

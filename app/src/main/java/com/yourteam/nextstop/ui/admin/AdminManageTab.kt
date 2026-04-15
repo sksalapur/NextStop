@@ -1,31 +1,27 @@
 package com.yourteam.nextstop.ui.admin
 
+import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DirectionsBus
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.yourteam.nextstop.models.Bus
+import com.yourteam.nextstop.models.CollegeLocation
 import com.yourteam.nextstop.models.Route
 import com.yourteam.nextstop.models.Stop
+import com.yourteam.nextstop.models.User
 import com.yourteam.nextstop.ui.components.CustomPlacesSearchField
-import com.yourteam.nextstop.ui.components.PlaceResult
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 @Composable
 fun AdminManageTab(viewModel: AdminViewModel) {
@@ -35,14 +31,16 @@ fun AdminManageTab(viewModel: AdminViewModel) {
     val routes by viewModel.routes.collectAsState()
     val buses by viewModel.buses.collectAsState()
     val drivers by viewModel.drivers.collectAsState()
+    val collegeLocation by viewModel.collegeLocation.collectAsState()
 
     var showAddRouteDialog by remember { mutableStateOf(false) }
     var showAddBusDialog by remember { mutableStateOf(false) }
     var showInviteDriverDialog by remember { mutableStateOf(false) }
+    var showCollegeLocationDialog by remember { mutableStateOf(false) }
     
     var editRoute by remember { mutableStateOf<Route?>(null) }
-    var editBus by remember { mutableStateOf<com.yourteam.nextstop.models.Bus?>(null) }
-    var editDriver by remember { mutableStateOf<com.yourteam.nextstop.models.User?>(null) }
+    var editBus by remember { mutableStateOf<Bus?>(null) }
+    var editDriver by remember { mutableStateOf<User?>(null) }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -50,7 +48,7 @@ fun AdminManageTab(viewModel: AdminViewModel) {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
-            androidx.compose.material3.FloatingActionButton(
+            FloatingActionButton(
                 onClick = { 
                     when (selectedTabIndex) {
                         0 -> showAddRouteDialog = true
@@ -69,6 +67,34 @@ fun AdminManageTab(viewModel: AdminViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // College Location Settings Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Central College Location", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = collegeLocation?.name?.ifEmpty { "Not set" } ?: "Not set",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    IconButton(onClick = { showCollegeLocationDialog = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Location")
+                    }
+                }
+            }
+
             TabRow(selectedTabIndex = selectedTabIndex) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
@@ -81,7 +107,8 @@ fun AdminManageTab(viewModel: AdminViewModel) {
 
             when (selectedTabIndex) {
                 0 -> RoutesList(
-                    routes = routes, 
+                    routes = routes,
+                    buses = buses,
                     onEditClick = { editRoute = it },
                     onDeleteClick = { 
                         viewModel.deleteRoute(it.routeId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
@@ -89,7 +116,6 @@ fun AdminManageTab(viewModel: AdminViewModel) {
                 )
                 1 -> BusesList(
                     buses = buses, 
-                    routes = routes, 
                     onEditClick = { editBus = it },
                     onDeleteClick = { 
                         viewModel.deleteBus(it.busId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
@@ -106,25 +132,44 @@ fun AdminManageTab(viewModel: AdminViewModel) {
         }
     }
 
-    if (showAddRouteDialog) {
-        AddRouteDialog(
-            onDismiss = { showAddRouteDialog = false },
-            onSave = { newRoute ->
-                showAddRouteDialog = false
-                viewModel.addRoute(newRoute) { success, message ->
-                    scope.launch { snackbarHostState.showSnackbar(message) }
+    if (showCollegeLocationDialog) {
+        CollegeLocationDialog(
+            existingLocation = collegeLocation,
+            onDismiss = { showCollegeLocationDialog = false },
+            onSave = { loc ->
+                showCollegeLocationDialog = false
+                viewModel.updateCollegeLocation(loc) { _, msg ->
+                    scope.launch { snackbarHostState.showSnackbar(msg) }
                 }
             }
         )
     }
 
+    if (showAddRouteDialog) {
+        if (collegeLocation == null) {
+            scope.launch { snackbarHostState.showSnackbar("Please set the Central College Location first.") }
+            showAddRouteDialog = false
+        } else {
+            AddRouteDialog(
+                collegeLocation = collegeLocation!!,
+                buses = buses,
+                onDismiss = { showAddRouteDialog = false },
+                onSave = { newRoute ->
+                    showAddRouteDialog = false
+                    viewModel.addRoute(newRoute) { _, message ->
+                        scope.launch { snackbarHostState.showSnackbar(message) }
+                    }
+                }
+            )
+        }
+    }
+
     if (showAddBusDialog) {
         AddBusDialog(
-            routes = routes,
             onDismiss = { showAddBusDialog = false },
-            onSave = { busNumber, routeId ->
+            onSave = { busNumber ->
                 showAddBusDialog = false
-                viewModel.addBus(busNumber, routeId) { success, message ->
+                viewModel.addBus(busNumber) { _, message ->
                     scope.launch { snackbarHostState.showSnackbar(message) }
                 }
             }
@@ -136,7 +181,7 @@ fun AdminManageTab(viewModel: AdminViewModel) {
             onDismiss = { showInviteDriverDialog = false },
             onSave = { email ->
                 showInviteDriverDialog = false
-                viewModel.inviteDriver(email) { success, message ->
+                viewModel.inviteDriver(email) { _, message ->
                     scope.launch { snackbarHostState.showSnackbar(message) }
                 }
             }
@@ -146,12 +191,11 @@ fun AdminManageTab(viewModel: AdminViewModel) {
     if (editBus != null) {
         AddBusDialog(
             existingBus = editBus,
-            routes = routes,
             onDismiss = { editBus = null },
-            onSave = { busNumber, routeId ->
+            onSave = { busNumber ->
                 val busIdToUpdate = editBus!!.busId
                 editBus = null
-                viewModel.updateBus(busIdToUpdate, busNumber, routeId) { _, msg ->
+                viewModel.updateBus(busIdToUpdate, busNumber) { _, msg ->
                     scope.launch { snackbarHostState.showSnackbar(msg) }
                 }
             }
@@ -159,16 +203,23 @@ fun AdminManageTab(viewModel: AdminViewModel) {
     }
 
     if (editRoute != null) {
-        AddRouteDialog(
-            existingRoute = editRoute,
-            onDismiss = { editRoute = null },
-            onSave = { updatedRoute ->
-                editRoute = null
-                viewModel.updateRoute(updatedRoute) { _, msg ->
-                    scope.launch { snackbarHostState.showSnackbar(msg) }
+        if (collegeLocation == null) {
+            scope.launch { snackbarHostState.showSnackbar("Please set the Central College Location first.") }
+            editRoute = null
+        } else {
+            AddRouteDialog(
+                collegeLocation = collegeLocation!!,
+                existingRoute = editRoute,
+                buses = buses,
+                onDismiss = { editRoute = null },
+                onSave = { updatedRoute ->
+                    editRoute = null
+                    viewModel.updateRoute(updatedRoute) { _, msg ->
+                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                    }
                 }
-            }
-        )
+            )
+        }
     }
     
     if (editDriver != null) {
@@ -188,7 +239,7 @@ fun AdminManageTab(viewModel: AdminViewModel) {
 // ─── Lists ───────────────────────────────────────────────────────────
 
 @Composable
-fun DriversList(drivers: List<com.yourteam.nextstop.models.User>, onEditClick: (com.yourteam.nextstop.models.User) -> Unit, onDeleteClick: (com.yourteam.nextstop.models.User) -> Unit) {
+fun DriversList(drivers: List<User>, onEditClick: (User) -> Unit, onDeleteClick: (User) -> Unit) {
     if (drivers.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No drivers found.", color = MaterialTheme.colorScheme.outline)
@@ -229,7 +280,7 @@ fun DriversList(drivers: List<com.yourteam.nextstop.models.User>, onEditClick: (
 }
 
 @Composable
-fun RoutesList(routes: List<Route>, onEditClick: (Route) -> Unit, onDeleteClick: (Route) -> Unit) {
+fun RoutesList(routes: List<Route>, buses: List<Bus>, onEditClick: (Route) -> Unit, onDeleteClick: (Route) -> Unit) {
     if (routes.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No routes defined.", color = MaterialTheme.colorScheme.outline)
@@ -241,36 +292,60 @@ fun RoutesList(routes: List<Route>, onEditClick: (Route) -> Unit, onDeleteClick:
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(routes, key = { it.routeId }) { route ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = route.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(text = "${route.stops.size} stops", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = { onEditClick(route) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Route", tint = MaterialTheme.colorScheme.outline)
-                    }
-                    IconButton(onClick = { onDeleteClick(route) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete Route", tint = MaterialTheme.colorScheme.error)
-                    }
-                }
+        val fromCollege = routes.filter { it.direction == "from_college" }.sortedBy { it.departureTime }
+        val toCollege = routes.filter { it.direction == "to_college" }.sortedBy { it.departureTime }
+
+        if (fromCollege.isNotEmpty()) {
+            item {
+                Text("From College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            items(fromCollege, key = { it.routeId }) { route ->
+                RouteItemCard(route, buses.find { it.busId == route.busId }, onEditClick, onDeleteClick)
+            }
+        }
+        
+        if (toCollege.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("To College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+            items(toCollege, key = { it.routeId }) { route ->
+                RouteItemCard(route, buses.find { it.busId == route.busId }, onEditClick, onDeleteClick)
             }
         }
     }
 }
 
 @Composable
-fun BusesList(buses: List<com.yourteam.nextstop.models.Bus>, routes: List<Route>, onEditClick: (com.yourteam.nextstop.models.Bus) -> Unit, onDeleteClick: (com.yourteam.nextstop.models.Bus) -> Unit) {
+private fun RouteItemCard(route: Route, bus: Bus?, onEditClick: (Route) -> Unit, onDeleteClick: (Route) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = route.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(text = "Departure: ${route.departureTime} | Bus ${bus?.busNumber ?: "?"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = "${route.stops.size} stops", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = { onEditClick(route) }) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit Route", tint = MaterialTheme.colorScheme.outline)
+            }
+            IconButton(onClick = { onDeleteClick(route) }) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete Route", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+fun BusesList(buses: List<Bus>, onEditClick: (Bus) -> Unit, onDeleteClick: (Bus) -> Unit) {
     if (buses.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No buses in the fleet.", color = MaterialTheme.colorScheme.outline)
@@ -283,7 +358,6 @@ fun BusesList(buses: List<com.yourteam.nextstop.models.Bus>, routes: List<Route>
         modifier = Modifier.fillMaxSize()
     ) {
         items(buses, key = { it.busId }) { bus ->
-            val routeName = routes.find { it.routeId == bus.routeId }?.name ?: "Unknown Route"
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -297,7 +371,6 @@ fun BusesList(buses: List<com.yourteam.nextstop.models.Bus>, routes: List<Route>
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = "Bus ${bus.busNumber}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(text = "Route: $routeName", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { onEditClick(bus) }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Bus", tint = MaterialTheme.colorScheme.outline)
@@ -314,8 +387,59 @@ fun BusesList(buses: List<com.yourteam.nextstop.models.Bus>, routes: List<Route>
 // ─── Dialogs ─────────────────────────────────────────────────────────
 
 @Composable
+fun CollegeLocationDialog(
+    existingLocation: CollegeLocation?,
+    onDismiss: () -> Unit,
+    onSave: (CollegeLocation) -> Unit
+) {
+    var locationName by remember { mutableStateOf(existingLocation?.name ?: "") }
+    var lat by remember { mutableDoubleStateOf(existingLocation?.latitude ?: 0.0) }
+    var lng by remember { mutableDoubleStateOf(existingLocation?.longitude ?: 0.0) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("College Location") },
+        text = {
+            Column {
+                key("college_location_search") {
+                    CustomPlacesSearchField(
+                        value = locationName,
+                        onPlaceSelected = { placeResult ->
+                            locationName = placeResult.name
+                            lat = placeResult.latLng.latitude
+                            lng = placeResult.latLng.longitude
+                        },
+                        label = "Search College Location",
+                        clearAfterSelect = false,
+                        onClear = { 
+                            locationName = ""
+                            lat = 0.0
+                            lng = 0.0
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    if (locationName.isNotBlank()) onSave(CollegeLocation(locationName, lat, lng)) 
+                },
+                enabled = locationName.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
 fun EditDriverDialog(
-    driver: com.yourteam.nextstop.models.User,
+    driver: User,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
 ) {
@@ -351,23 +475,19 @@ fun EditDriverDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddBusDialog(
-    existingBus: com.yourteam.nextstop.models.Bus? = null,
-    routes: List<Route>,
+    existingBus: Bus? = null,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit
+    onSave: (String) -> Unit
 ) {
     var busNumber by remember { mutableStateOf(existingBus?.busNumber ?: "") }
-    var selectedRoute by remember { mutableStateOf<Route?>(routes.find { it.routeId == existingBus?.routeId } ?: routes.firstOrNull()) }
-    var expanded by remember { mutableStateOf(false) }
-
+    
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existingBus != null) "Edit Bus" else "Add New Bus") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = busNumber,
                     onValueChange = { busNumber = it },
@@ -375,49 +495,14 @@ fun AddBusDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                if (routes.isNotEmpty()) {
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = it },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = selectedRoute?.name ?: "",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Assign to Route") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            routes.forEach { route ->
-                                DropdownMenuItem(
-                                    text = { Text(route.name) },
-                                    onClick = {
-                                        selectedRoute = route
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Text("You must create a route first.", color = MaterialTheme.colorScheme.error)
-                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (busNumber.isNotBlank() && selectedRoute != null) {
-                        onSave(busNumber, selectedRoute!!.routeId)
-                    }
+                    if (busNumber.isNotBlank()) onSave(busNumber)
                 },
-                enabled = busNumber.isNotBlank() && selectedRoute != null
+                enabled = busNumber.isNotBlank()
             ) {
                 Text("Save")
             }
@@ -427,6 +512,7 @@ fun AddBusDialog(
         }
     )
 }
+
 
 @Composable
 fun InviteDriverDialog(
@@ -441,7 +527,7 @@ fun InviteDriverDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
-                    text = "The driver will automatically receive the 'driver' role upon logging in via Google for the first time.",
+                    text = "The driver will receive the 'driver' role upon logging in via Google.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -468,16 +554,45 @@ fun InviteDriverDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddRouteDialog(
+    collegeLocation: CollegeLocation,
     existingRoute: Route? = null,
+    buses: List<Bus>,
     onDismiss: () -> Unit,
     onSave: (Route) -> Unit
 ) {
     var routeName by remember { mutableStateOf(existingRoute?.name ?: "") }
-    var startName by remember { mutableStateOf(existingRoute?.startName ?: "") }
-    var endName by remember { mutableStateOf(existingRoute?.endName ?: "") }
+    var direction by remember { mutableStateOf(existingRoute?.direction ?: "from_college") }
+    var busId by remember { mutableStateOf(existingRoute?.busId ?: "") }
+    var departureTime by remember { mutableStateOf(existingRoute?.departureTime ?: "7:30 AM") }
     
+    // Dependent names based on direction
+    var externalPlaceName by remember { 
+        mutableStateOf(
+            if (existingRoute?.direction == "to_college") existingRoute.startName 
+            else if (existingRoute?.direction == "from_college") existingRoute.endName 
+            else ""
+        )
+    }
+    
+    var externalLat by remember {
+        mutableDoubleStateOf(
+            if (existingRoute?.direction == "from_college") existingRoute.endLat
+            else 0.0
+        )
+    }
+    var externalLng by remember {
+        mutableDoubleStateOf(
+            if (existingRoute?.direction == "from_college") existingRoute.endLng
+            else 0.0
+        )
+    }
+
+    val context = LocalContext.current
+    var busDropdownExpanded by remember { mutableStateOf(false) }
+
     // Manage stops list state
     val stopsList = remember { mutableStateListOf<Stop>().apply { 
         if (existingRoute != null) addAll(existingRoute.stops.sortedBy { it.order })
@@ -489,7 +604,7 @@ fun AddRouteDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedTextField(
                     value = routeName,
@@ -499,21 +614,110 @@ fun AddRouteDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Direction Selector
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = startName,
-                        onValueChange = { startName = it },
-                        label = { Text("Start Area") },
-                        singleLine = true,
+                    val fromCollegeColors = if (direction == "from_college") {
+                        ButtonDefaults.buttonColors()
+                    } else {
+                        ButtonDefaults.outlinedButtonColors()
+                    }
+                    val toCollegeColors = if (direction == "to_college") {
+                        ButtonDefaults.buttonColors()
+                    } else {
+                        ButtonDefaults.outlinedButtonColors()
+                    }
+
+                    Button(
+                        onClick = { direction = "from_college" },
+                        colors = fromCollegeColors,
                         modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = endName,
-                        onValueChange = { endName = it },
-                        label = { Text("End Area") },
-                        singleLine = true,
+                    ) {
+                        Text("From College")
+                    }
+                    
+                    Button(
+                        onClick = { direction = "to_college" },
+                        colors = toCollegeColors,
                         modifier = Modifier.weight(1f)
+                    ) {
+                        Text("To College")
+                    }
+                }
+
+                // Place Field
+                key("external_area_$direction") {
+                    CustomPlacesSearchField(
+                        value = externalPlaceName,
+                        onPlaceSelected = { placeResult ->
+                            externalPlaceName = placeResult.name
+                            externalLat = placeResult.latLng.latitude
+                            externalLng = placeResult.latLng.longitude
+                        },
+                        label = if (direction == "from_college") "End Area" else "Start Area",
+                        clearAfterSelect = false,
+                        onClear = { 
+                            externalPlaceName = ""
+                            externalLat = 0.0
+                            externalLng = 0.0
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Time Selector
+                    OutlinedButton(
+                        onClick = {
+                            val cal = Calendar.getInstance()
+                            TimePickerDialog(
+                                context,
+                                { _, hourOfDay, minute ->
+                                    val amPm = if (hourOfDay >= 12) "PM" else "AM"
+                                    val hour12 = if (hourOfDay % 12 == 0) 12 else hourOfDay % 12
+                                    val timeStr = "%d:%02d %s".format(hour12, minute, amPm)
+                                    departureTime = timeStr
+                                },
+                                cal.get(Calendar.HOUR_OF_DAY),
+                                cal.get(Calendar.MINUTE),
+                                false 
+                            ).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(departureTime)
+                    }
+                    
+                    // Bus Selector
+                    ExposedDropdownMenuBox(
+                        expanded = busDropdownExpanded,
+                        onExpandedChange = { busDropdownExpanded = it },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = buses.find { it.busId == busId }?.busNumber ?: "Select Bus",
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = busDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        ExposedDropdownMenu(
+                            expanded = busDropdownExpanded,
+                            onDismissRequest = { busDropdownExpanded = false }
+                        ) {
+                            buses.forEach { bus ->
+                                DropdownMenuItem(
+                                    text = { Text("Bus ${bus.busNumber}") },
+                                    onClick = {
+                                        busId = bus.busId
+                                        busDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Text(
@@ -523,7 +727,7 @@ fun AddRouteDialog(
                 )
 
                 LazyColumn(
-                    modifier = Modifier.height(200.dp).fillMaxWidth()
+                    modifier = Modifier.height(150.dp).fillMaxWidth()
                 ) {
                     itemsIndexed(stopsList) { index, stop ->
                         Row(
@@ -542,32 +746,6 @@ fun AddRouteDialog(
                                 modifier = Modifier.weight(1f)
                             )
                             
-                            IconButton(
-                                onClick = { 
-                                    if (index > 0) {
-                                        val temp = stopsList[index]
-                                        stopsList[index] = stopsList[index - 1]
-                                        stopsList[index - 1] = temp
-                                    }
-                                },
-                                enabled = index > 0
-                            ) {
-                                Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(20.dp))
-                            }
-                            
-                            IconButton(
-                                onClick = { 
-                                    if (index < stopsList.size - 1) {
-                                        val temp = stopsList[index]
-                                        stopsList[index] = stopsList[index + 1]
-                                        stopsList[index + 1] = temp
-                                    }
-                                },
-                                enabled = index < stopsList.size - 1
-                            ) {
-                                Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(20.dp))
-                            }
-                            
                             IconButton(onClick = { stopsList.removeAt(index) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                             }
@@ -575,35 +753,52 @@ fun AddRouteDialog(
                     }
                 }
 
-                // Google Places Autocomplete to add a stop using debounce
                 CustomPlacesSearchField(
                     value = "",
                     onPlaceSelected = { placeResult ->
                         val newStop = Stop(
-                            stopId = "", // Firestore will ignore/generate if needed
+                            stopId = java.util.UUID.randomUUID().toString(),
                             stopName = placeResult.name,
                             latitude = placeResult.latLng.latitude,
                             longitude = placeResult.latLng.longitude,
-                            order = 0 // dynamically assigned on save
+                            order = 0 
                         )
                         stopsList.add(newStop)
                     },
-                    label = "Search & Add Stop..."
+                    label = "Search & Add Stop...",
+                    clearAfterSelect = true
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (routeName.isNotBlank() && startName.isNotBlank() && endName.isNotBlank() && stopsList.isNotEmpty()) {
+                    if (routeName.isNotBlank() && externalPlaceName.isNotBlank() && stopsList.isNotEmpty() && busId.isNotBlank()) {
                         val routeId = existingRoute?.routeId ?: ""
-                        // update the actual order indices sequentially
                         val finalStops = stopsList.mapIndexed { index, stop -> stop.copy(order = index + 1) }
-                        val route = Route(routeId = routeId, name = routeName, startName = startName, endName = endName, stops = finalStops)
+                        
+                        val startName = if (direction == "from_college") collegeLocation.name else externalPlaceName
+                        val endName = if (direction == "to_college") collegeLocation.name else externalPlaceName
+                        val endLat = if (direction == "to_college") collegeLocation.latitude else externalLat
+                        val endLng = if (direction == "to_college") collegeLocation.longitude else externalLng
+
+                        val route = Route(
+                            routeId = routeId, 
+                            name = routeName, 
+                            direction = direction,
+                            busId = busId,
+                            departureTime = departureTime,
+                            startName = startName, 
+                            endName = endName,
+                            endLat = endLat,
+                            endLng = endLng,
+                            assignedDriverId = existingRoute?.assignedDriverId,
+                            stops = finalStops
+                        )
                         onSave(route)
                     }
                 },
-                enabled = routeName.isNotBlank() && startName.isNotBlank() && endName.isNotBlank() && stopsList.isNotEmpty()
+                enabled = routeName.isNotBlank() && externalPlaceName.isNotBlank() && stopsList.isNotEmpty() && busId.isNotBlank()
             ) {
                 Text("Save Route")
             }

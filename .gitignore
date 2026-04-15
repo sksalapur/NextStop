@@ -4,6 +4,7 @@
 /.idea
 .DS_Store
 /build
+/app/build
 /captures
 .externalNativeBuild
 .cxx
@@ -11,3 +12,5 @@ local.properties
 
 # Firebase config — do NOT commit to public repos
 app/google-services.json
+
+.kotlin/

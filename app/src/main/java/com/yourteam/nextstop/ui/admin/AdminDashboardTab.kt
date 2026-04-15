@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yourteam.nextstop.models.Bus
 import com.yourteam.nextstop.models.LiveLocation
+import com.yourteam.nextstop.models.Route
 import com.yourteam.nextstop.ui.components.ShimmerListSkeleton
 
 @Composable
@@ -54,13 +55,14 @@ fun AdminDashboardTab(
         return
     }
 
-    val selectedBus by studentViewModel.selectedTrackingBus.collectAsState()
+    val selectedRoute by studentViewModel.selectedRoute.collectAsState()
+    val selectedBus = buses.find { it.busId == selectedRoute?.busId }
 
-    androidx.activity.compose.BackHandler(enabled = selectedBus != null) {
-        studentViewModel.selectBus(null)
+    androidx.activity.compose.BackHandler(enabled = selectedRoute != null) {
+        studentViewModel.selectRoute(null)
     }
 
-    if (selectedBus != null) {
+    if (selectedRoute != null && selectedBus != null) {
         val routeStops by studentViewModel.routeStops.collectAsState()
         val busLocation by studentViewModel.busLocation.collectAsState()
         val etaMinutes by studentViewModel.etaMinutes.collectAsState()
@@ -69,7 +71,7 @@ fun AdminDashboardTab(
         val isBusActive by studentViewModel.isBusActive.collectAsState()
 
         com.yourteam.nextstop.ui.components.SharedTrackerScreen(
-            busNumber = selectedBus!!.busNumber,
+            busNumber = selectedBus.busNumber,
             routeStops = routeStops,
             busLocation = busLocation,
             etaMinutes = etaMinutes,
@@ -78,50 +80,89 @@ fun AdminDashboardTab(
             isBusActive = isBusActive,
             assignedStopId = null,
             boardingEtaMinutes = null,
+            passedStopIds = emptySet(),
             onStopSelected = null,
             modifier = Modifier.fillMaxSize()
         )
         return
     }
 
-    if (buses.isEmpty()) {
-        EmptyStateMessage("No buses found in the fleet.")
+    if (routes.isEmpty()) {
+        EmptyStateMessage("No routes defined.")
         return
     }
+
+    val fromCollege = routes.filter { it.direction == "from_college" }.sortedBy { it.departureTime }
+    val toCollege = routes.filter { it.direction == "to_college" }.sortedBy { it.departureTime }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        items(buses, key = { it.busId }) { bus ->
-            val routeName = routes.find { it.routeId == bus.routeId }?.name ?: "Unknown Route"
-            val driverName = drivers.find { it.uid == bus.assignedDriverId }?.name ?: "Unassigned"
-            val liveLocation = liveLocations[bus.busId]
+        if (fromCollege.isNotEmpty()) {
+            item {
+                Text(
+                    text = "From College",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            items(fromCollege, key = { it.routeId }) { route ->
+                val bus = buses.find { it.busId == route.busId }
+                val driverName = drivers.find { it.uid == route.assignedDriverId }?.name ?: "Unassigned"
+                val liveLocation = liveLocations[route.routeId]
 
-            BusStatusCard(
-                bus = bus,
-                routeName = routeName,
-                driverName = driverName,
-                liveLocation = liveLocation,
-                onClick = { studentViewModel.selectBus(bus) }
-            )
+                RouteStatusCard(
+                    route = route,
+                    bus = bus,
+                    driverName = driverName,
+                    liveLocation = liveLocation,
+                    onClick = { studentViewModel.selectRoute(route) }
+                )
+            }
+        }
+
+        if (toCollege.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "To College",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            items(toCollege, key = { it.routeId }) { route ->
+                val bus = buses.find { it.busId == route.busId }
+                val driverName = drivers.find { it.uid == route.assignedDriverId }?.name ?: "Unassigned"
+                val liveLocation = liveLocations[route.routeId]
+
+                RouteStatusCard(
+                    route = route,
+                    bus = bus,
+                    driverName = driverName,
+                    liveLocation = liveLocation,
+                    onClick = { studentViewModel.selectRoute(route) }
+                )
+            }
         }
     }
 }
 
 @Composable
-fun BusStatusCard(
-    bus: Bus,
-    routeName: String,
+fun RouteStatusCard(
+    route: Route,
+    bus: Bus?,
     driverName: String,
     liveLocation: LiveLocation?,
     onClick: () -> Unit
 ) {
     val (statusText, statusColor) = when {
-        bus.assignedDriverId.isNullOrEmpty() -> "No Driver" to MaterialTheme.colorScheme.error
+        route.assignedDriverId.isNullOrEmpty() -> "No Driver" to MaterialTheme.colorScheme.error
         liveLocation?.active == true -> "Live" to MaterialTheme.colorScheme.tertiary
-        else -> "Inactive" to MaterialTheme.colorScheme.outline
+        else -> "Scheduled" to MaterialTheme.colorScheme.outline
     }
 
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -133,7 +174,6 @@ fun BusStatusCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            // Colored left border strip
             Box(
                 modifier = Modifier
                     .width(6.dp)
@@ -143,7 +183,7 @@ fun BusStatusCard(
             )
 
             Column(modifier = Modifier.padding(16.dp).weight(1f)) {
-                // Header Row: Bus Number + Status
+                // Header Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -151,20 +191,19 @@ fun BusStatusCard(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.DirectionsBus,
+                            imageVector = Icons.Default.Route,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Bus ${bus.busNumber}",
+                            text = route.name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    // Status chip
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = statusColor.copy(alpha = 0.12f),
@@ -181,25 +220,25 @@ fun BusStatusCard(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Body Row: Route + Driver
+                // Body Row
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Route,
+                                imageVector = Icons.Default.DirectionsBus,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Route",
+                                text = "Bus @ ${route.departureTime}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Text(
-                            text = routeName,
+                            text = bus?.busNumber ?: "Unknown",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(start = 18.dp, top = 2.dp)
                         )

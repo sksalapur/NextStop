@@ -40,8 +40,8 @@ class StudentViewModel @Inject constructor(
     val liveLocations: StateFlow<Map<String, LiveLocation>> = repository.observeAllLiveLocations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private val _selectedTrackingBus = MutableStateFlow<Bus?>(null)
-    val selectedTrackingBus: StateFlow<Bus?> = _selectedTrackingBus.asStateFlow()
+    private val _selectedRoute = MutableStateFlow<Route?>(null)
+    val selectedRoute: StateFlow<Route?> = _selectedRoute.asStateFlow()
 
     private val _assignedStopId = MutableStateFlow<String?>(null)
     val assignedStopId: StateFlow<String?> = _assignedStopId.asStateFlow()
@@ -69,17 +69,17 @@ class StudentViewModel @Inject constructor(
     private val _isBusActive = MutableStateFlow(false)
     val isBusActive: StateFlow<Boolean> = _isBusActive.asStateFlow()
 
+    private val _passedStopIds = MutableStateFlow<Set<String>>(emptySet())
+    val passedStopIds: StateFlow<Set<String>> = _passedStopIds.asStateFlow()
+
     init {
         loadStudentData()
         
         viewModelScope.launch {
             routes.collectLatest {
-                val bus = _selectedTrackingBus.value
-                if (bus != null) {
-                    val route = it.find { r -> r.routeId == bus.routeId }
-                    val rawStops = route?.stops?.sortedBy { s -> s.order } ?: emptyList()
-                    // Dynamically heal corrupted stopIds so Selection UI successfully Maps ETA coordinates
-                    _routeStops.value = rawStops.map { stop -> if (stop.stopId.isEmpty()) stop.copy(stopId = "temp_${stop.stopName}") else stop }
+                val route = _selectedRoute.value
+                if (route != null) {
+                    loadRouteStops(route)
                     updateTrackingState(_busLocation.value)
                 }
             }
@@ -87,8 +87,8 @@ class StudentViewModel @Inject constructor(
         
         viewModelScope.launch {
             liveLocations.collectLatest { locations ->
-                val bus = _selectedTrackingBus.value ?: return@collectLatest
-                val location = locations[bus.busId]
+                val route = _selectedRoute.value ?: return@collectLatest
+                val location = locations[route.routeId]
                 updateTrackingState(location)
             }
         }
@@ -104,9 +104,28 @@ class StudentViewModel @Inject constructor(
         }
     }
 
-    fun selectBus(bus: Bus?) {
-        _selectedTrackingBus.value = bus
-        if (bus == null) {
+    private fun loadRouteStops(route: Route) {
+        val rawStops = route.stops.sortedBy { it.order }.toMutableList()
+        // Synthesize an end Stop if the route has an end location
+        if (route.endName.isNotBlank() && route.endLat != 0.0) {
+            val maxOrder = rawStops.maxOfOrNull { it.order } ?: 0
+            rawStops.add(Stop(
+                stopId = "endpoint_${route.routeId}",
+                stopName = route.endName,
+                latitude = route.endLat,
+                longitude = route.endLng,
+                order = maxOrder + 1
+            ))
+        }
+
+        _routeStops.value = rawStops.map { stop ->
+            if (stop.stopId.isEmpty()) stop.copy(stopId = "temp_${stop.stopName}") else stop
+        }
+    }
+
+    fun selectRoute(route: Route?) {
+        _selectedRoute.value = route
+        if (route == null) {
             _routeStops.value = emptyList()
             _busLocation.value = null
             _isBusActive.value = false
@@ -114,11 +133,10 @@ class StudentViewModel @Inject constructor(
             _etaMinutes.value = 0
             _boardingEtaMinutes.value = null
             _nextStopName.value = ""
+            _passedStopIds.value = emptySet()
         } else {
-            val route = routes.value.find { it.routeId == bus.routeId }
-            val rawStops = route?.stops?.sortedBy { it.order } ?: emptyList()
-            _routeStops.value = rawStops.map { stop -> if (stop.stopId.isEmpty()) stop.copy(stopId = "temp_${stop.stopName}") else stop }
-            val location = liveLocations.value[bus.busId]
+            loadRouteStops(route)
+            val location = liveLocations.value[route.routeId]
             updateTrackingState(location)
         }
     }
@@ -131,6 +149,11 @@ class StudentViewModel @Inject constructor(
         if (location != null && location.active) {
             val stops = _routeStops.value
             if (stops.isEmpty()) return
+
+            val passed = LocationUtils.getPassedStopIds(
+                location.latitude, location.longitude, stops
+            )
+            _passedStopIds.value = passed
 
             val nextStop = LocationUtils.findNextStop(
                 location.latitude,
@@ -152,13 +175,17 @@ class StudentViewModel @Inject constructor(
                 val assignedStopId = _assignedStopId.value
                 val assignedStop = stops.find { it.stopId == assignedStopId }
                 if (assignedStop != null) {
-                    _boardingEtaMinutes.value = LocationUtils.calculateEtaMinutes(
-                        busLat = location.latitude,
-                        busLon = location.longitude,
-                        stopLat = assignedStop.latitude,
-                        stopLon = assignedStop.longitude,
-                        speedKmh = speedKmh
-                    )
+                    if (passed.contains(assignedStopId)) {
+                        _boardingEtaMinutes.value = -1
+                    } else {
+                        _boardingEtaMinutes.value = LocationUtils.calculateEtaMinutes(
+                            busLat = location.latitude,
+                            busLon = location.longitude,
+                            stopLat = assignedStop.latitude,
+                            stopLon = assignedStop.longitude,
+                            speedKmh = speedKmh
+                        )
+                    }
                 } else {
                     _boardingEtaMinutes.value = null
                 }
@@ -172,6 +199,8 @@ class StudentViewModel @Inject constructor(
         val assignedStopId = _assignedStopId.value ?: return
         val assignedStop = stops.find { it.stopId == assignedStopId } ?: return
 
+        if (_passedStopIds.value.contains(assignedStopId)) return
+
         val distanceMeters = LocationUtils.haversineKm(
             location.latitude, location.longitude,
             assignedStop.latitude, assignedStop.longitude
@@ -180,9 +209,9 @@ class StudentViewModel @Inject constructor(
         if (distanceMeters < 500.0) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastNotifiedAt > 5 * 60 * 1000) {
-                val busNum = _selectedTrackingBus.value?.busNumber ?: ""
+                val routeName = _selectedRoute.value?.name ?: ""
                 notificationService.sendProximityNotification(
-                    busNumber = busNum,
+                    busNumber = routeName,
                     stopName = assignedStop.stopName
                 )
                 lastNotifiedAt = currentTime

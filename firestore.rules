@@ -50,5 +50,11 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isUserAdmin();
     }
+
+    // Settings Collection
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isUserAdmin();
+    }
   }
 }

@@ -3,8 +3,12 @@ package com.yourteam.nextstop.data.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.snapshots
 import com.yourteam.nextstop.models.Bus
 import com.yourteam.nextstop.models.LiveLocation
+import com.yourteam.nextstop.models.Route
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,11 +26,15 @@ class DriverRepository @Inject constructor(
     fun getCurrentUid(): String? = auth.currentUser?.uid
 
     /**
-     * Reads the driver's user document and returns their assignedBusId.
+     * Observes all routes currently assigned to the driver.
      */
-    suspend fun getAssignedBusId(uid: String): String? {
-        val snapshot = firestore.collection("users").document(uid).get().await()
-        return snapshot.getString("assignedBusId")
+    fun observeAssignedRoutes(uid: String): Flow<List<Route>> {
+        return firestore.collection("routes")
+            .whereEqualTo("assignedDriverId", uid)
+            .snapshots()
+            .map { snapshot ->
+                snapshot.toObjects(Route::class.java)
+            }
     }
 
     /**
@@ -40,10 +48,10 @@ class DriverRepository @Inject constructor(
     /**
      * Writes a live location update to the Realtime Database.
      */
-    suspend fun updateLiveLocation(busId: String, location: LiveLocation) {
+    suspend fun updateLiveLocation(routeId: String, location: LiveLocation) {
         realtimeDb.reference
             .child("live_location")
-            .child(busId)
+            .child(routeId)
             .setValue(location)
             .await()
     }
@@ -51,22 +59,12 @@ class DriverRepository @Inject constructor(
     /**
      * Sets active = false in the RTDB live_location node.
      */
-    suspend fun clearLiveLocation(busId: String) {
+    suspend fun clearLiveLocation(routeId: String) {
         realtimeDb.reference
             .child("live_location")
-            .child(busId)
+            .child(routeId)
             .child("active")
             .setValue(false)
-            .await()
-    }
-
-    /**
-     * Updates `status` field on the Firestore bus document.
-     */
-    suspend fun setBusStatus(busId: String, active: Boolean) {
-        firestore.collection("buses")
-            .document(busId)
-            .update("status", if (active) "active" else "inactive")
             .await()
     }
 }
