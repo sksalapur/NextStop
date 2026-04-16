@@ -63,6 +63,9 @@ class LocationForegroundService : Service() {
     private val _isTracking = MutableStateFlow(false)
     val isTracking: StateFlow<Boolean> = _isTracking.asStateFlow()
 
+    private val _activeRouteId = MutableStateFlow<String?>(null)
+    val activeRouteId: StateFlow<String?> = _activeRouteId.asStateFlow()
+
     // Location
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
@@ -109,6 +112,7 @@ class LocationForegroundService : Service() {
 
     private fun startTracking(routeId: String) {
         currentRouteId = routeId
+        _activeRouteId.value = routeId
         _isTracking.value = true
 
         // Start as foreground
@@ -150,6 +154,7 @@ class LocationForegroundService : Service() {
         _isTracking.value = false
         _tripState.value = TripState.Stopped
         currentRouteId = null
+        _activeRouteId.value = null
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

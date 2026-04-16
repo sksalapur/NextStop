@@ -134,6 +134,10 @@ object LocationUtils {
     /**
      * Formats a connection status string based on the last location timestamp.
      */
+    @Deprecated(
+        message = "Use LocationFreshness sealed class instead for UI state management.",
+        replaceWith = ReplaceWith("LocationFreshness")
+    )
     fun connectionStatus(location: LiveLocation?): String {
         if (location == null) return "Connecting..."
         if (!location.active) return "Bus has not started"

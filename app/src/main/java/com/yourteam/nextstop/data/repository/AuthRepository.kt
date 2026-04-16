@@ -68,28 +68,32 @@ class AuthRepository @Inject constructor(
         val userDocRef = firestore.collection("users").document(uid)
         val snapshot = userDocRef.get().await()
 
-        if (snapshot.exists()) {
-            return snapshot.getString("role") ?: throw Exception("Role field missing in user profile")
+        // Check for pending invite REGARDLESS of whether account exists, to allow account upgrades
+        val invitedDoc = firestore.collection("invited_drivers").document(email).get().await()
+        
+        var currentRole = if (snapshot.exists()) {
+            snapshot.getString("role") ?: "student"
         } else {
-            // New User Registration Flow
-            val invitedDoc = firestore.collection("invited_drivers").document(email).get().await()
-            val role = if (invitedDoc.exists()) {
-                // Consume the invitation
-                firestore.collection("invited_drivers").document(email).delete().await()
-                "driver"
-            } else {
-                "student" // Default fallback
-            }
+            "student"
+        }
 
-            // Create new users document
-            val newUser = hashMapOf(
+        if (invitedDoc.exists()) {
+            currentRole = "driver"
+            // Consume the invitation
+            firestore.collection("invited_drivers").document(email).delete().await()
+        }
+
+        if (!snapshot.exists() || snapshot.getString("role") != currentRole) {
+            val userData = hashMapOf(
                 "name" to name,
                 "email" to email,
-                "role" to role
+                "role" to currentRole
             )
-            userDocRef.set(newUser).await()
-            return role
+            // If the document exists, update fields (merge). If not, create it.
+            userDocRef.set(userData, com.google.firebase.firestore.SetOptions.merge()).await()
         }
+
+        return currentRole
     }
 
     /**

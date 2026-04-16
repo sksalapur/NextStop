@@ -18,6 +18,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
@@ -32,9 +38,11 @@ import com.yourteam.nextstop.ui.components.ShimmerListSkeleton
 @Composable
 fun StudentHomeScreen(
     onLogout: () -> Unit,
+    onNavigateToSetup: () -> Unit = {},
     viewModel: StudentViewModel = hiltViewModel()
 ) {
     val selectedRoute by viewModel.selectedRoute.collectAsState()
+    val buses by viewModel.buses.collectAsState()
 
     BackHandler(enabled = selectedRoute != null) {
         viewModel.selectRoute(null)
@@ -51,70 +59,231 @@ fun StudentHomeScreen(
     }
 
     Scaffold(
-        topBar = { NextStopTopBar(title = if (selectedRoute != null) "${selectedRoute!!.name}" else "Fleet Tracker", onLogout = onLogout) }
+        topBar = { 
+            if (selectedRoute != null) {
+                // Tracking Title
+                val activeBus = buses.find { it.busId == selectedRoute!!.busId }
+                NextStopTopBar(
+                    title = "Live Tracking",
+                    subtitle = "Bus ${activeBus?.busNumber ?: "?"} • ${selectedRoute!!.name}",
+                    onLogout = null
+                )
+            } else {
+                // Home Title
+                NextStopTopBar(title = "My Bus", onLogout = onLogout) 
+            }
+        }
     ) { innerPadding ->
         if (selectedRoute == null) {
-            StudentFleetDashboard(viewModel = viewModel, modifier = Modifier.padding(innerPadding))
+            StudentFleetDashboard(
+                viewModel = viewModel, 
+                onNavigateToSetup = onNavigateToSetup,
+                modifier = Modifier.padding(innerPadding)
+            )
         } else {
             StudentTrackerScreen(viewModel = viewModel, modifier = Modifier.padding(innerPadding))
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StudentFleetDashboard(viewModel: StudentViewModel, modifier: Modifier = Modifier) {
-    val routes by viewModel.routes.collectAsState()
-    val buses by viewModel.buses.collectAsState()
-    val liveLocations by viewModel.liveLocations.collectAsState()
+fun StudentFleetDashboard(
+    viewModel: StudentViewModel,
+    onNavigateToSetup: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val direction by viewModel.direction.collectAsState()
+    val homeStop by viewModel.homeStop.collectAsState()
+    val needsSetup by viewModel.needsHomeStopSetup.collectAsState()
+    val filteredBuses by viewModel.filteredBuses.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val availableStops by viewModel.availableStops.collectAsState()
 
-    if (isLoading || routes.isEmpty()) {
+    var stopDropdownExpanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxSize()) {
         if (isLoading) {
-            ShimmerListSkeleton(modifier = modifier)
+            ShimmerListSkeleton(modifier = Modifier.fillMaxSize())
+            return@Column
+        }
+
+        // Inline boarding stop selector — works for both first-time and edit
+        if (needsSetup == true || homeStop == null) {
+            // First time: prominent card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Where do you board the bus?",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Select your stop to see relevant buses",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = stopDropdownExpanded,
+                        onExpandedChange = { stopDropdownExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = "",
+                            onValueChange = {},
+                            readOnly = true,
+                            placeholder = { Text("Select your boarding stop") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stopDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface
+                            )
+                        )
+                        ExposedDropdownMenu(
+                            expanded = stopDropdownExpanded,
+                            onDismissRequest = { stopDropdownExpanded = false }
+                        ) {
+                            availableStops.forEach { stop ->
+                                DropdownMenuItem(
+                                    text = { Text(stop.stopName) },
+                                    onClick = {
+                                        viewModel.changeHomeStop(stop)
+                                        stopDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         } else {
-            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No routes available.", color = MaterialTheme.colorScheme.outline)
+            // Compact inline selector for editing
+            ExposedDropdownMenuBox(
+                expanded = stopDropdownExpanded,
+                onExpandedChange = { stopDropdownExpanded = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .menuAnchor()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Boarding at ${homeStop!!.stopName}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Default.ExpandMore, contentDescription = "Change Stop", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+                ExposedDropdownMenu(
+                    expanded = stopDropdownExpanded,
+                    onDismissRequest = { stopDropdownExpanded = false }
+                ) {
+                    availableStops.forEach { stop ->
+                        DropdownMenuItem(
+                            text = { Text(stop.stopName) },
+                            onClick = {
+                                viewModel.changeHomeStop(stop)
+                                stopDropdownExpanded = false
+                            }
+                        )
+                    }
+                }
             }
         }
-        return
-    }
 
-    // Split routes into From College / To College
-    val fromCollege = routes.filter { it.direction == "from_college" }.sortedBy { it.departureTime }
-    val toCollege = routes.filter { it.direction == "to_college" }.sortedBy { it.departureTime }
-
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        if (fromCollege.isNotEmpty()) {
-            item {
-                Text("From College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            }
-            items(fromCollege, key = { it.routeId }) { route ->
-                val liveLocation = liveLocations[route.routeId]
-                RouteTrackingCard(
-                    route = route,
-                    bus = buses.find { it.busId == route.busId },
-                    liveLocation = liveLocation,
-                    onClick = { viewModel.selectRoute(route) }
+        // Direction Toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilledTonalButton(
+                onClick = { viewModel.setDirection(Direction.TO_COLLEGE) },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            ) {
+                Text("🏫 To College", fontWeight = if (direction == Direction.TO_COLLEGE) FontWeight.Bold else FontWeight.Normal)
+            }
+            FilledTonalButton(
+                onClick = { viewModel.setDirection(Direction.TO_HOME) },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text("🏠 To Home", fontWeight = if (direction == Direction.TO_HOME) FontWeight.Bold else FontWeight.Normal)
+            }
+            FilledTonalButton(
+                onClick = { viewModel.setDirection(Direction.ALL_SCHEDULED) },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text("🚌 All Scheduled", fontWeight = if (direction == Direction.ALL_SCHEDULED) FontWeight.Bold else FontWeight.Normal)
             }
         }
-        
-        if (toCollege.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("To College", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (filteredBuses.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No buses on this route right now", color = MaterialTheme.colorScheme.outline)
             }
-            items(toCollege, key = { it.routeId }) { route ->
-                val liveLocation = liveLocations[route.routeId]
+            return@Column
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(filteredBuses, key = { it.route.routeId }) { busData ->
+                val passesStop = busData.route.stops.any { it.stopName == homeStop?.stopName }
+                val isOffRoute = direction == Direction.ALL_SCHEDULED && !passesStop
+                val etaText = if (isOffRoute) {
+                    "Does not pass your stop"
+                } else if (!busData.isLive) {
+                    "Scheduled – Waiting for departure"
+                } else {
+                    val rawEta = com.yourteam.nextstop.ui.utils.formatEta(busData.etaMinutes)
+                    when (rawEta) {
+                        "Calculating..." -> "Calculating..."
+                        "Bus is far away" -> "Bus is far away"
+                        else -> "Arrives at ${homeStop!!.stopName} in $rawEta"
+                    }
+                }
+                val etaColor = if (isOffRoute || etaText == "Bus is far away") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                
                 RouteTrackingCard(
-                    route = route,
-                    bus = buses.find { it.busId == route.busId },
-                    liveLocation = liveLocation,
-                    onClick = { viewModel.selectRoute(route) }
+                    route = busData.route,
+                    bus = busData.bus,
+                    isLive = busData.isLive,
+                    etaText = etaText,
+                    etaColor = etaColor,
+                    onClick = { viewModel.selectRoute(busData.route) }
                 )
             }
         }
@@ -125,12 +294,14 @@ fun StudentFleetDashboard(viewModel: StudentViewModel, modifier: Modifier = Modi
 @Composable
 fun RouteTrackingCard(
     route: Route,
-    bus: com.yourteam.nextstop.models.Bus?,
-    liveLocation: com.yourteam.nextstop.models.LiveLocation?,
+    bus: com.yourteam.nextstop.models.Bus,
+    isLive: Boolean,
+    etaText: String,
+    etaColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
     val (statusText, statusColor) = when {
-        liveLocation?.active == true -> "Live" to MaterialTheme.colorScheme.tertiary
+        isLive -> "Live" to MaterialTheme.colorScheme.tertiary
         else -> "Inactive" to MaterialTheme.colorScheme.outline
     }
 
@@ -196,11 +367,20 @@ fun RouteTrackingCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Bus ${bus?.busNumber ?: "?"} @ ${route.departureTime}",
+                        text = "Bus ${bus.busNumber} @ ${route.departureTime}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = etaText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = etaColor
+                )
             }
         }
     }
@@ -213,11 +393,12 @@ fun StudentTrackerScreen(viewModel: StudentViewModel, modifier: Modifier = Modif
     val busLocation by viewModel.busLocation.collectAsState()
     val etaMinutes by viewModel.etaMinutes.collectAsState()
     val nextStopName by viewModel.nextStopName.collectAsState()
-    val connectionStatus by viewModel.connectionStatus.collectAsState()
     val isBusActive by viewModel.isBusActive.collectAsState()
     val assignedStopId by viewModel.assignedStopId.collectAsState()
     val boardingEtaMinutes by viewModel.boardingEtaMinutes.collectAsState()
     val passedStopIds by viewModel.passedStopIds.collectAsState()
+    val locationFreshness by viewModel.locationFreshness.collectAsState()
+    val alertEnabled by viewModel.alertEnabled.collectAsState()
     val context = LocalContext.current
     
     val buses by viewModel.buses.collectAsState()
@@ -230,14 +411,16 @@ fun StudentTrackerScreen(viewModel: StudentViewModel, modifier: Modifier = Modif
         busLocation = busLocation,
         etaMinutes = etaMinutes,
         nextStopName = nextStopName,
-        connectionStatus = connectionStatus,
         isBusActive = isBusActive,
         assignedStopId = assignedStopId,
         boardingEtaMinutes = boardingEtaMinutes,
         passedStopIds = passedStopIds,
-        onStopSelected = { selectedId, selectedName -> 
-            viewModel.updateAssignedStop(selectedId)
-            Toast.makeText(context, "Alert set for $selectedName.", Toast.LENGTH_SHORT).show()
+        locationFreshness = locationFreshness,
+        alertEnabled = alertEnabled,
+        onToggleAlert = { 
+            viewModel.toggleAlertEnabled()
+            val newStatus = if (!alertEnabled) "on" else "off"
+            Toast.makeText(context, "Stop alerts turned $newStatus.", Toast.LENGTH_SHORT).show()
         },
         modifier = modifier
     )

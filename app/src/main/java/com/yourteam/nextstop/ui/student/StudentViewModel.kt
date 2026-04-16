@@ -16,8 +16,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+enum class Direction { TO_COLLEGE, TO_HOME, ALL_SCHEDULED }
+
+data class BusWithEta(
+    val bus: Bus,
+    val route: Route,
+    val etaMinutes: Int,
+    val isLive: Boolean
+)
+
+sealed class LocationFreshness {
+    object Fresh : LocationFreshness()
+    data class Stale(val minutesAgo: Int) : LocationFreshness()
+    data class Unavailable(val minutesAgo: Int) : LocationFreshness()
+}
 
 @HiltViewModel
 class StudentViewModel @Inject constructor(
@@ -46,6 +63,9 @@ class StudentViewModel @Inject constructor(
     private val _assignedStopId = MutableStateFlow<String?>(null)
     val assignedStopId: StateFlow<String?> = _assignedStopId.asStateFlow()
 
+    private val _alertEnabled = MutableStateFlow(false)
+    val alertEnabled: StateFlow<Boolean> = _alertEnabled.asStateFlow()
+
     private var lastNotifiedAt: Long = 0L
 
     private val _routeStops = MutableStateFlow<List<Stop>>(emptyList())
@@ -63,18 +83,125 @@ class StudentViewModel @Inject constructor(
     private val _nextStopName = MutableStateFlow("")
     val nextStopName: StateFlow<String> = _nextStopName.asStateFlow()
 
-    private val _connectionStatus = MutableStateFlow("Connecting...")
-    val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
-
     private val _isBusActive = MutableStateFlow(false)
     val isBusActive: StateFlow<Boolean> = _isBusActive.asStateFlow()
 
     private val _passedStopIds = MutableStateFlow<Set<String>>(emptySet())
     val passedStopIds: StateFlow<Set<String>> = _passedStopIds.asStateFlow()
 
+    private val _timeTicker = MutableStateFlow(System.currentTimeMillis())
+
+    val locationFreshness: StateFlow<LocationFreshness> = combine(
+        _busLocation,
+        _timeTicker
+    ) { location, _ ->
+        if (location == null) return@combine LocationFreshness.Unavailable(0)
+        
+        val ageMs = System.currentTimeMillis() - location.timestamp
+        val minutesAgo = (ageMs / 60_000).toInt()
+
+        when {
+            !location.active || minutesAgo > 10 -> LocationFreshness.Unavailable(minutesAgo)
+            minutesAgo in 2..10 -> LocationFreshness.Stale(minutesAgo)
+            else -> LocationFreshness.Fresh
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LocationFreshness.Unavailable(0))
+
+    // Onboarding gate — true means HomeStopSetupScreen should show
+    private val _needsHomeStopSetup = MutableStateFlow<Boolean?>(null) // null = still checking
+    val needsHomeStopSetup: StateFlow<Boolean?> = _needsHomeStopSetup.asStateFlow()
+
+    private val _direction = MutableStateFlow(Direction.TO_COLLEGE)
+    val direction: StateFlow<Direction> = _direction.asStateFlow()
+
+    private val _homeStop = MutableStateFlow<Stop?>(null)
+    val homeStop: StateFlow<Stop?> = _homeStop.asStateFlow()
+
+    private val _homeStopId = MutableStateFlow<String?>(null)
+
+    // Deduplicated list of all stops across all routes for the inline dropdown
+    val availableStops: StateFlow<List<Stop>> = routes.map { routeList ->
+        routeList.flatMap { it.stops }
+            .distinctBy { it.stopName.trim().lowercase() }
+            .sortedBy { it.stopName }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun changeHomeStop(stop: Stop) {
+        viewModelScope.launch {
+            val uid = repository.getCurrentUid() ?: return@launch
+            repository.setHomeStopId(uid, stop.stopName)
+            _homeStop.value = stop
+            _needsHomeStopSetup.value = false
+        }
+    }
+
+    val filteredBuses: StateFlow<List<BusWithEta>> = combine(
+        _direction,
+        _homeStop,
+        buses,
+        routes,
+        liveLocations
+    ) { dir, homeStopObj, busList, routeList, locs ->
+        if (homeStopObj == null || busList.isEmpty() || routeList.isEmpty()) {
+            return@combine emptyList()
+        }
+
+        // Target direction string based on enum
+        val activeRoutes = if (dir == Direction.ALL_SCHEDULED) {
+            routeList
+        } else {
+            val targetDirection = if (dir == Direction.TO_COLLEGE) "to_college" else "from_college"
+            routeList.filter { route ->
+                route.direction == targetDirection && route.stops.any { it.stopName == homeStopObj.stopName }
+            }
+        }
+
+        activeRoutes.mapNotNull { route ->
+            val bus = busList.find { it.busId == route.busId } ?: return@mapNotNull null
+            
+            val loc = locs[route.routeId]
+            val isLive = loc?.active == true
+
+            var eta = -1
+            if (isLive) {
+                // Determine ETA to the homeStop if applicable
+                val hStop = route.stops.find { it.stopName == homeStopObj.stopName }
+                if (hStop != null) {
+                    val speedKmh = loc.speed * 3.6f
+                    eta = LocationUtils.calculateEtaMinutes(
+                        busLat = loc.latitude, busLon = loc.longitude,
+                        stopLat = hStop.latitude, stopLon = hStop.longitude,
+                        speedKmh = speedKmh
+                    )
+                }
+            }
+
+            BusWithEta(bus, route, eta, isLive)
+        }.sortedWith(compareBy {
+            // Natural sort: extract trailing number for numeric comparison
+            val match = Regex("(.*?)(\\d+)$").find(it.route.name)
+            if (match != null) {
+                val prefix = match.groupValues[1]
+                val num = match.groupValues[2].padStart(10, '0')
+                prefix + num
+            } else {
+                it.route.name
+            }
+        })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+
+
     init {
         loadStudentData()
         
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                _timeTicker.value = System.currentTimeMillis()
+            }
+        }
+
         viewModelScope.launch {
             routes.collectLatest {
                 val route = _selectedRoute.value
@@ -99,9 +226,29 @@ class StudentViewModel @Inject constructor(
             val uid = repository.getCurrentUid()
             if (uid != null) {
                 _assignedStopId.value = repository.getAssignedStopId(uid)
+                _alertEnabled.value = repository.getAlertEnabled(uid)
+                val homeId = repository.getHomeStopId(uid)
+                _homeStopId.value = homeId
+                _needsHomeStopSetup.value = homeId.isNullOrBlank()
+
+                if (!homeId.isNullOrBlank()) {
+                    // Fetch the actual stop object representing home Stop
+                    // homeId is stored as the stop NAME (or legacy stopId), so match by name first, then id
+                    val allRoutes = repository.getAllRoutes()
+                    val allStops = allRoutes.flatMap { it.stops }
+                    val stop = allStops.find { it.stopName == homeId }
+                        ?: allStops.find { it.stopId == homeId }
+                    _homeStop.value = stop
+                }
+            } else {
+                _needsHomeStopSetup.value = false // not signed in, let auth handle it
             }
             _isLoading.value = false
         }
+    }
+
+    fun setDirection(dir: Direction) {
+        _direction.value = dir
     }
 
     private fun loadRouteStops(route: Route) {
@@ -129,7 +276,6 @@ class StudentViewModel @Inject constructor(
             _routeStops.value = emptyList()
             _busLocation.value = null
             _isBusActive.value = false
-            _connectionStatus.value = "Connecting..."
             _etaMinutes.value = 0
             _boardingEtaMinutes.value = null
             _nextStopName.value = ""
@@ -143,7 +289,6 @@ class StudentViewModel @Inject constructor(
 
     private fun updateTrackingState(location: LiveLocation?) {
         _busLocation.value = location
-        _connectionStatus.value = LocationUtils.connectionStatus(location)
         _isBusActive.value = location?.active == true
 
         if (location != null && location.active) {
@@ -231,6 +376,15 @@ class StudentViewModel @Inject constructor(
             } catch (e: Exception) {
                 _errorMessage.value = e.message ?: "Failed to update stop"
             }
+        }
+    }
+
+    fun toggleAlertEnabled() {
+        viewModelScope.launch {
+            val uid = repository.getCurrentUid() ?: return@launch
+            val newState = !_alertEnabled.value
+            repository.updateAlertEnabled(uid, newState)
+            _alertEnabled.value = newState
         }
     }
 }

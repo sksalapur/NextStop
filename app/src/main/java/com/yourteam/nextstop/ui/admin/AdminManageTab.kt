@@ -71,27 +71,66 @@ fun AdminManageTab(viewModel: AdminViewModel) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Row(
                     modifier = Modifier
-                        .padding(16.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "Central College Location", fontWeight = FontWeight.Bold)
+                        Text(text = "College Location", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                         Text(
                             text = collegeLocation?.name?.ifEmpty { "Not set" } ?: "Not set",
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
                         )
                     }
-                    IconButton(onClick = { showCollegeLocationDialog = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Location")
+                    IconButton(onClick = { showCollegeLocationDialog = true }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Location", modifier = Modifier.size(18.dp))
                     }
+                }
+            }
+
+            // Derive seed state from actual data — if "bus_1" exists, data is seeded
+            val seedEnabled = buses.any { it.busId == "bus_1" }
+
+            // Hackathon Developer Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Mock Data", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = seedEnabled,
+                        onCheckedChange = { newValue ->
+                            if (newValue) {
+                                viewModel.seedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                            } else {
+                                viewModel.unseedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    )
                 }
             }
 
@@ -105,29 +144,31 @@ fun AdminManageTab(viewModel: AdminViewModel) {
                 }
             }
 
-            when (selectedTabIndex) {
-                0 -> RoutesList(
-                    routes = routes,
-                    buses = buses,
-                    onEditClick = { editRoute = it },
-                    onDeleteClick = { 
-                        viewModel.deleteRoute(it.routeId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
-                    }
-                )
-                1 -> BusesList(
-                    buses = buses, 
-                    onEditClick = { editBus = it },
-                    onDeleteClick = { 
-                        viewModel.deleteBus(it.busId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
-                    }
-                )
-                2 -> DriversList(
-                    drivers = drivers,
-                    onEditClick = { editDriver = it },
-                    onDeleteClick = { 
-                        viewModel.deleteDriver(it.uid) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
-                    }
-                )
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (selectedTabIndex) {
+                    0 -> RoutesList(
+                        routes = routes,
+                        buses = buses,
+                        onEditClick = { editRoute = it },
+                        onDeleteClick = { 
+                            viewModel.deleteRoute(it.routeId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        }
+                    )
+                    1 -> BusesList(
+                        buses = buses, 
+                        onEditClick = { editBus = it },
+                        onDeleteClick = { 
+                            viewModel.deleteBus(it.busId) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        }
+                    )
+                    2 -> DriversList(
+                        drivers = drivers,
+                        onEditClick = { editDriver = it },
+                        onDeleteClick = { 
+                            viewModel.deleteDriver(it.uid) { _, msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        }
+                    )
+                }
             }
         }
     }

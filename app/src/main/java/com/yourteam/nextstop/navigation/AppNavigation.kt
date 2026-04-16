@@ -21,7 +21,9 @@ import com.yourteam.nextstop.ui.auth.AuthState
 import com.yourteam.nextstop.ui.auth.AuthViewModel
 import com.yourteam.nextstop.ui.auth.LoginScreen
 import com.yourteam.nextstop.ui.driver.DriverHomeScreen
+import com.yourteam.nextstop.ui.student.HomeStopSetupScreen
 import com.yourteam.nextstop.ui.student.StudentHomeScreen
+
 
 @Composable
 fun AppNavigation(
@@ -48,8 +50,12 @@ fun AppNavigation(
                 // If we were on a role screen and logged out, go back to login
                 val currentRoute = navController.currentDestination?.route
                 if (currentRoute != null && currentRoute != NavRoutes.LOGIN) {
-                    navController.navigate(NavRoutes.LOGIN) {
-                        popUpTo(0) { inclusive = true }
+                    try {
+                        navController.navigate(NavRoutes.LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    } catch (_: Exception) {
+                        // Navigation may fail during teardown — safe to ignore
                     }
                 }
             }
@@ -85,7 +91,7 @@ fun AppNavigation(
         // Nested NavGraphs for each role
         adminNavGraph(onLogout = { authViewModel.logout() })
         driverNavGraph(onLogout = { authViewModel.logout() })
-        studentNavGraph(onLogout = { authViewModel.logout() })
+        studentNavGraph(navController = navController, onLogout = { authViewModel.logout() })
     }
 }
 
@@ -119,14 +125,32 @@ fun NavGraphBuilder.driverNavGraph(onLogout: () -> Unit) {
 
 // ─── Student NavGraph ────────────────────────────────────────────────
 
-fun NavGraphBuilder.studentNavGraph(onLogout: () -> Unit) {
+fun NavGraphBuilder.studentNavGraph(
+    navController: NavHostController,
+    onLogout: () -> Unit
+) {
     navigation(
         startDestination = NavRoutes.STUDENT_HOME,
         route = NavRoutes.STUDENT_GRAPH
     ) {
         composable(NavRoutes.STUDENT_HOME) {
-            StudentHomeScreen(onLogout = onLogout)
+            StudentHomeScreen(
+                onLogout = onLogout,
+                onNavigateToSetup = {
+                    navController.navigate(NavRoutes.STUDENT_HOME_STOP_SETUP)
+                }
+            )
         }
-        // Future student screens go here
+
+        // Keep legacy route for deep links / backward compat
+        composable(NavRoutes.STUDENT_HOME_STOP_SETUP) {
+            HomeStopSetupScreen(
+                onSetupComplete = {
+                    navController.navigate(NavRoutes.STUDENT_HOME) {
+                        popUpTo(NavRoutes.STUDENT_HOME_STOP_SETUP) { inclusive = true }
+                    }
+                }
+            )
+        }
     }
 }

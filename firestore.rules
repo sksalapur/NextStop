@@ -18,11 +18,11 @@ service cloud.firestore {
       // Users can read their own document; admins can read all user documents
       allow read: if isAuthenticated() && (request.auth.uid == uid || isUserAdmin());
       
-      // Users can CREATE their own document (first-time sign-up)
-      allow create: if isAuthenticated() && request.auth.uid == uid;
+      // Users can CREATE their own document (first-time sign-up), and admins can create users (mock data)
+      allow create: if isAuthenticated() && (request.auth.uid == uid || isUserAdmin());
       
-      // Users can uniquely update only their assignedStopId, admins can freely update everything
-      allow update: if isUserAdmin() || (isAuthenticated() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assignedStopId']));
+      // Users can update their assigned stop, home stop, alert preferences, and role (for driver upgrade)
+      allow update: if isUserAdmin() || (isAuthenticated() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assignedStopId', 'homeStopId', 'alertEnabled', 'role', 'name', 'email']));
       
       allow delete: if isUserAdmin();
     }

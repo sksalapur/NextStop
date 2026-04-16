@@ -19,4 +19,5 @@ object NavRoutes {
     
     const val DRIVER_HOME = "driver_home"
     const val STUDENT_HOME = "student_home"
+    const val STUDENT_HOME_STOP_SETUP = "student_home_stop_setup"
 }

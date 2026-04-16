@@ -44,6 +44,45 @@ class StudentRepository @Inject constructor(
     }
 
     /**
+     * Reads the student's homeStopId (used for onboarding gate).
+     */
+    suspend fun getHomeStopId(uid: String): String? {
+        val snapshot = firestore.collection("users").document(uid).get().await()
+        return snapshot.getString("homeStopId").takeIf { !it.isNullOrBlank() }
+    }
+
+    /**
+     * Persists the student's chosen home stop during onboarding.
+     */
+    suspend fun setHomeStopId(uid: String, stopId: String) {
+        firestore.collection("users").document(uid)
+            .update("homeStopId", stopId).await()
+    }
+
+    /**
+     * Reads the student's alert preferences.
+     */
+    suspend fun getAlertEnabled(uid: String): Boolean {
+        val snapshot = firestore.collection("users").document(uid).get().await()
+        return snapshot.getBoolean("alertEnabled") ?: false
+    }
+
+    /**
+     * Updates the student's alert preference.
+     */
+    suspend fun updateAlertEnabled(uid: String, enabled: Boolean) {
+        firestore.collection("users").document(uid).update("alertEnabled", enabled).await()
+    }
+
+    /**
+     * One-shot fetch of all routes (used in onboarding stop picker).
+     */
+    suspend fun getAllRoutes(): List<Route> {
+        val snapshot = firestore.collection("routes").get(com.google.firebase.firestore.Source.SERVER).await()
+        return snapshot.toObjects(Route::class.java)
+    }
+
+    /**
      * Updates the student's assigned stop.
      */
     suspend fun updateAssignedStopId(uid: String, stopId: String) {

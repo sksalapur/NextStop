@@ -11,13 +11,18 @@ import com.yourteam.nextstop.models.User
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+import com.google.firebase.firestore.FirebaseFirestore
+import com.yourteam.nextstop.utils.HackathonSeeder
+
 @HiltViewModel
 class AdminViewModel @Inject constructor(
-    private val repository: AdminRepository
+    private val repository: AdminRepository,
+    private val firestore: FirebaseFirestore
 ) : ViewModel() {
 
     // ─── State Flows ──────────────────────────────────────────────────
@@ -25,13 +30,30 @@ class AdminViewModel @Inject constructor(
     val collegeLocation: StateFlow<CollegeLocation?> = repository.observeCollegeLocation()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    // Natural sort: "To Home 2" before "To Home 10"
+    private val naturalComparator = Comparator<String> { a, b ->
+        val regex = Regex("(\\d+)|(\\D+)")
+        val partsA = regex.findAll(a).map { it.value }.toList()
+        val partsB = regex.findAll(b).map { it.value }.toList()
+        for (i in 0 until minOf(partsA.size, partsB.size)) {
+            val pa = partsA[i]; val pb = partsB[i]
+            val na = pa.toLongOrNull(); val nb = pb.toLongOrNull()
+            val cmp = if (na != null && nb != null) na.compareTo(nb) else pa.compareTo(pb)
+            if (cmp != 0) return@Comparator cmp
+        }
+        partsA.size - partsB.size
+    }
+
     val buses: StateFlow<List<Bus>> = repository.observeBuses()
+        .map { list -> list.sortedWith(compareBy(naturalComparator) { it.busNumber }) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val routes: StateFlow<List<Route>> = repository.observeRoutes()
+        .map { list -> list.sortedWith(compareBy(naturalComparator) { it.name }) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val drivers: StateFlow<List<User>> = repository.observeDrivers()
+        .map { list -> list.sortedWith(compareBy(naturalComparator) { it.name }) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val liveLocations: StateFlow<Map<String, LiveLocation>> = repository.observeAllLiveLocations()
@@ -244,6 +266,28 @@ class AdminViewModel @Inject constructor(
                 onResult(true, "Driver invited successfully")
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Failed to invite driver")
+            }
+        }
+    }
+
+    fun seedHackathonData(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                HackathonSeeder.seedDatabase(firestore)
+                onResult("Mock database seeded successfully!")
+            } catch (e: Exception) {
+                onResult("Seeding failed: ${e.message}")
+            }
+        }
+    }
+
+    fun unseedHackathonData(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                HackathonSeeder.unseedDatabase(firestore)
+                onResult("Mock database completely deleted.")
+            } catch (e: Exception) {
+                onResult("Unseeding failed: ${e.message}")
             }
         }
     }

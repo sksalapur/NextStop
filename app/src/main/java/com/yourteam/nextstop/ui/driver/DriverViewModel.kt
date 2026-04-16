@@ -53,12 +53,12 @@ class DriverViewModel @Inject constructor(
             // Observe service trip state and mirror it to our UI state
             viewModelScope.launch {
                 localBinder.getService().tripState.collectLatest { tripState ->
-                    // Currently, the service tracks one bus at a time.
-                    // We assume that the active route is the one we started.
                     _uiState.value = _uiState.value.copy(tripState = tripState)
-                    if (tripState == TripState.Stopped) {
-                        _uiState.value = _uiState.value.copy(activeRouteId = null)
-                    }
+                }
+            }
+            viewModelScope.launch {
+                localBinder.getService().activeRouteId.collectLatest { routeId ->
+                    _uiState.value = _uiState.value.copy(activeRouteId = routeId)
                 }
             }
         }

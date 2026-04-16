@@ -66,6 +66,9 @@ class AuthViewModel @Inject constructor(
     /**
      * Sign out and reset to Idle so the NavHost
      * navigates back to LoginScreen.
+     * Note: The StudentViewModel (and its Direction state) is intrinsically 
+     * flushed to default (TO_COLLEGE) because popUpTo(0) rips the graph out
+     * and guarantees fresh ViewModel instantiation on next login.
      */
     fun logout() {
         repository.logout()

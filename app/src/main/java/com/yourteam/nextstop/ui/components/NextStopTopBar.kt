@@ -18,16 +18,36 @@ import androidx.compose.runtime.Composable
 @Composable
 fun NextStopTopBar(
     title: String,
-    onLogout: () -> Unit
+    subtitle: String? = null,
+    onLogout: (() -> Unit)? = null
 ) {
     TopAppBar(
-        title = { Text(text = title) },
+        title = {
+            if (subtitle.isNullOrBlank()) {
+                Text(text = title)
+            } else {
+                androidx.compose.foundation.layout.Column {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        },
         actions = {
-            IconButton(onClick = onLogout) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Logout,
-                    contentDescription = "Logout"
-                )
+            if (onLogout != null) {
+                IconButton(onClick = onLogout) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = "Logout"
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(

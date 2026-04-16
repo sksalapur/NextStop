@@ -67,7 +67,6 @@ fun AdminDashboardTab(
         val busLocation by studentViewModel.busLocation.collectAsState()
         val etaMinutes by studentViewModel.etaMinutes.collectAsState()
         val nextStopName by studentViewModel.nextStopName.collectAsState()
-        val connectionStatus by studentViewModel.connectionStatus.collectAsState()
         val isBusActive by studentViewModel.isBusActive.collectAsState()
 
         com.yourteam.nextstop.ui.components.SharedTrackerScreen(
@@ -76,12 +75,10 @@ fun AdminDashboardTab(
             busLocation = busLocation,
             etaMinutes = etaMinutes,
             nextStopName = nextStopName,
-            connectionStatus = connectionStatus,
             isBusActive = isBusActive,
             assignedStopId = null,
             boardingEtaMinutes = null,
             passedStopIds = emptySet(),
-            onStopSelected = null,
             modifier = Modifier.fillMaxSize()
         )
         return
