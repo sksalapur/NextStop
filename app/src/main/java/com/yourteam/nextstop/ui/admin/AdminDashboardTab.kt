@@ -49,9 +49,35 @@ fun AdminDashboardTab(
     val drivers by viewModel.drivers.collectAsState()
     val liveLocations by viewModel.liveLocations.collectAsState()
 
-    // Show shimmer while initial data hasn't arrived yet
+    // Show empty state when no data exists
     if (buses.isEmpty() && routes.isEmpty()) {
-        ShimmerListSkeleton()
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Route,
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp),
+                    tint = MaterialTheme.colorScheme.outlineVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No fleet data yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Head over to the Manage tab to add\nroutes, buses, and drivers",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
         return
     }
 

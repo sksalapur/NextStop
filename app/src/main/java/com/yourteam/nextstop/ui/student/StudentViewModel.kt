@@ -203,11 +203,23 @@ class StudentViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            routes.collectLatest {
+            routes.collectLatest { routeList ->
                 val route = _selectedRoute.value
                 if (route != null) {
                     loadRouteStops(route)
                     updateTrackingState(_busLocation.value)
+                }
+                // If homeStop no longer exists in any route, clear it
+                val currentStop = _homeStop.value
+                if (currentStop != null && routeList.isNotEmpty()) {
+                    val stillExists = routeList.any { r -> r.stops.any { it.stopName == currentStop.stopName } }
+                    if (!stillExists) {
+                        _homeStop.value = null
+                        _needsHomeStopSetup.value = true
+                    }
+                } else if (currentStop != null && routeList.isEmpty()) {
+                    _homeStop.value = null
+                    _needsHomeStopSetup.value = true
                 }
             }
         }

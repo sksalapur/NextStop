@@ -217,40 +217,72 @@ fun StudentFleetDashboard(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilledTonalButton(
+            val buttonShape = RoundedCornerShape(100.dp)
+            
+            Button(
                 onClick = { viewModel.setDirection(Direction.TO_COLLEGE) },
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                shape = buttonShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.TO_COLLEGE) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                elevation = if (direction == Direction.TO_COLLEGE) ButtonDefaults.buttonElevation(defaultElevation = 4.dp) else null
             ) {
-                Text("🏫 To College", fontWeight = if (direction == Direction.TO_COLLEGE) FontWeight.Bold else FontWeight.Normal)
+                Text("🏫 To College", fontWeight = FontWeight.Bold)
             }
-            FilledTonalButton(
+            Button(
                 onClick = { viewModel.setDirection(Direction.TO_HOME) },
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                shape = buttonShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.TO_HOME) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                elevation = if (direction == Direction.TO_HOME) ButtonDefaults.buttonElevation(defaultElevation = 4.dp) else null
             ) {
-                Text("🏠 To Home", fontWeight = if (direction == Direction.TO_HOME) FontWeight.Bold else FontWeight.Normal)
+                Text("🏠 To Home", fontWeight = FontWeight.Bold)
             }
-            FilledTonalButton(
+            Button(
                 onClick = { viewModel.setDirection(Direction.ALL_SCHEDULED) },
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                shape = buttonShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (direction == Direction.ALL_SCHEDULED) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                elevation = if (direction == Direction.ALL_SCHEDULED) ButtonDefaults.buttonElevation(defaultElevation = 4.dp) else null
             ) {
-                Text("🚌 All Scheduled", fontWeight = if (direction == Direction.ALL_SCHEDULED) FontWeight.Bold else FontWeight.Normal)
+                Text("🚌 All Scheduled", fontWeight = FontWeight.Bold)
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         if (filteredBuses.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No buses on this route right now", color = MaterialTheme.colorScheme.outline)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.DirectionsBus,
+                        contentDescription = null,
+                        modifier = Modifier.size(72.dp),
+                        tint = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "No buses right now",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "There are no scheduled or active buses for the selected direction.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
             }
             return@Column
         }
