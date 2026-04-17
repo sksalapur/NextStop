@@ -112,6 +112,7 @@ class DriverViewModel @Inject constructor(
         val intent = Intent(appContext, LocationForegroundService::class.java).apply {
             action = LocationForegroundService.ACTION_START
             putExtra(LocationForegroundService.EXTRA_ROUTE_ID, route.routeId)
+            putExtra(LocationForegroundService.EXTRA_BUS_ID, route.busId)
         }
         appContext.startForegroundService(intent)
 

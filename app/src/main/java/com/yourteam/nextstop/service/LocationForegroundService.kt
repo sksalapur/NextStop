@@ -42,6 +42,7 @@ class LocationForegroundService : Service() {
         const val ACTION_START = "ACTION_START_TRACKING"
         const val ACTION_STOP = "ACTION_STOP_TRACKING"
         const val EXTRA_ROUTE_ID = "EXTRA_ROUTE_ID"
+        const val EXTRA_BUS_ID = "EXTRA_BUS_ID"
 
         private const val NOTIFICATION_CHANNEL_ID = "nextstop_tracking_channel"
         private const val NOTIFICATION_ID = 1001
@@ -70,6 +71,7 @@ class LocationForegroundService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private var currentRouteId: String? = null
+    private var currentBusId: String? = null
 
     // ─── Binder ──────────────────────────────────────────────────────
 
@@ -92,8 +94,9 @@ class LocationForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 val routeId = intent.getStringExtra(EXTRA_ROUTE_ID)
-                if (routeId != null) {
-                    startTracking(routeId)
+                val busId = intent.getStringExtra(EXTRA_BUS_ID)
+                if (routeId != null && busId != null) {
+                    startTracking(routeId, busId)
                 }
             }
             ACTION_STOP -> {
@@ -110,8 +113,9 @@ class LocationForegroundService : Service() {
 
     // ─── Tracking ────────────────────────────────────────────────────
 
-    private fun startTracking(routeId: String) {
+    private fun startTracking(routeId: String, busId: String) {
         currentRouteId = routeId
+        currentBusId = busId
         _activeRouteId.value = routeId
         _isTracking.value = true
 
@@ -142,11 +146,11 @@ class LocationForegroundService : Service() {
     private fun stopTracking() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val routeId = currentRouteId
-        if (routeId != null) {
+        val busId = currentBusId
+        if (busId != null) {
             serviceScope.launch {
                 try {
-                    driverRepository.clearLiveLocation(routeId)
+                    driverRepository.clearLiveLocation(busId)
                 } catch (_: Exception) { /* best effort */ }
             }
         }
@@ -154,6 +158,7 @@ class LocationForegroundService : Service() {
         _isTracking.value = false
         _tripState.value = TripState.Stopped
         currentRouteId = null
+        currentBusId = null
         _activeRouteId.value = null
 
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -166,7 +171,7 @@ class LocationForegroundService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
-                val routeId = currentRouteId ?: return
+                val busId = currentBusId ?: return
 
                 // Calculate valid speed, ignoring < 0.5f m/s (1.8 km/h) noise
                 val validSpeed = if (location.hasSpeed() && location.speed > 0.5f) location.speed else 0f
@@ -179,7 +184,7 @@ class LocationForegroundService : Service() {
                     longitude = location.longitude
                 )
 
-                // Write to Firebase RTDB
+                // Write to Firebase RTDB keyed by busId
                 val liveLocation = LiveLocation(
                     latitude = location.latitude,
                     longitude = location.longitude,
@@ -191,7 +196,7 @@ class LocationForegroundService : Service() {
 
                 serviceScope.launch {
                     try {
-                        driverRepository.updateLiveLocation(routeId, liveLocation)
+                        driverRepository.updateLiveLocation(busId, liveLocation)
                     } catch (_: Exception) { /* best effort, will retry on next update */ }
                 }
             }

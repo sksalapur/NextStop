@@ -37,13 +37,6 @@ object LocationUtils {
     /**
      * Calculates ETA in minutes from bus location to a stop.
      * Uses a minimum speed floor to handle stationary buses.
-     *
-     * @param busLat    current bus latitude
-     * @param busLon    current bus longitude
-     * @param stopLat   target stop latitude
-     * @param stopLon   target stop longitude
-     * @param speedKmh  current bus speed in km/h
-     * @return estimated time in minutes (rounded up)
      */
     fun calculateEtaMinutes(
         busLat: Double, busLon: Double,
@@ -57,13 +50,13 @@ object LocationUtils {
     }
 
     /**
-     * Determines the next upcoming stop for the bus.
+     * Determines the next upcoming stop for the bus using segment projection.
      *
-     * Strategy: Find the stop closest to the bus. All stops with a lower
-     * or equal order index are considered "passed". The next stop is the
-     * one immediately after the closest stop in order.
+     * Strategy: For each segment (stop[i] → stop[i+1]), project the bus position
+     * onto the segment. The bus is considered to be on the segment where the projection
+     * falls between 0 and 1 (or closest to it). The next stop is stop[i+1] of that segment.
      *
-     * @return the next [Stop], or null if the bus has passed all stops.
+     * Fallback: If projection fails, use distance-along-route to determine progress.
      */
     fun findNextStop(
         busLat: Double,
@@ -73,31 +66,67 @@ object LocationUtils {
         if (stops.isEmpty()) return null
 
         val sortedStops = stops.sortedBy { it.order }
+        if (sortedStops.size == 1) return sortedStops[0]
 
-        // Find the closest stop to the bus
-        val closestStop = sortedStops.minByOrNull { stop ->
-            haversineKm(busLat, busLon, stop.latitude, stop.longitude)
-        } ?: return null
+        // Calculate cumulative distance along the route for each stop
+        val cumulativeDistances = mutableListOf(0.0)
+        for (i in 1 until sortedStops.size) {
+            val prev = sortedStops[i - 1]
+            val curr = sortedStops[i]
+            cumulativeDistances.add(
+                cumulativeDistances.last() + haversineKm(prev.latitude, prev.longitude, curr.latitude, curr.longitude)
+            )
+        }
+        val totalRouteDistance = cumulativeDistances.last()
 
-        val closestDistance = haversineKm(
-            busLat, busLon,
-            closestStop.latitude, closestStop.longitude
-        )
+        // Project bus onto each segment; find the segment it's closest to
+        var bestSegmentIndex = 0
+        var bestProjectionDist = Double.MAX_VALUE
 
-        // If bus is very close to the closest stop (< 150m), consider it passed
-        // and return the next one in order
-        return if (closestDistance < 0.15) {
-            sortedStops.firstOrNull { it.order > closestStop.order } ?: closestStop
+        for (i in 0 until sortedStops.size - 1) {
+            val ax = sortedStops[i].latitude
+            val ay = sortedStops[i].longitude
+            val bx = sortedStops[i + 1].latitude
+            val by = sortedStops[i + 1].longitude
+
+            // Parameter t of projection onto segment [A, B]
+            val dx = bx - ax
+            val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 < 1e-10) 0.0
+                    else ((busLat - ax) * dx + (busLon - ay) * dy) / len2
+
+            val tClamped = t.coerceIn(0.0, 1.0)
+
+            // Closest point on segment
+            val projLat = ax + tClamped * dx
+            val projLon = ay + tClamped * dy
+
+            val dist = haversineKm(busLat, busLon, projLat, projLon)
+
+            if (dist < bestProjectionDist) {
+                bestProjectionDist = dist
+                bestSegmentIndex = i
+            }
+        }
+
+        // Determine progress along the best segment
+        val segStart = sortedStops[bestSegmentIndex]
+        val segEnd = sortedStops[bestSegmentIndex + 1]
+        val distToSegEnd = haversineKm(busLat, busLon, segEnd.latitude, segEnd.longitude)
+
+        // If bus is within 200m of the segment end, the next stop is the one AFTER
+        return if (distToSegEnd < 0.2 && bestSegmentIndex + 2 < sortedStops.size) {
+            sortedStops[bestSegmentIndex + 2]
         } else {
-            // Bus is between stops — the closest one ahead
-            closestStop
+            sortedStops[bestSegmentIndex + 1]
         }
     }
 
     /**
      * Returns the set of stop IDs that the bus has already passed.
-     * A stop is "passed" if its order is less than or equal to the closest stop's order
-     * when the bus is within 150m, or strictly less than the closest stop's order otherwise.
+     * Uses segment projection to determine which segment the bus is on.
+     * All stops before the current segment's end stop are considered passed.
      */
     fun getPassedStopIds(
         busLat: Double,
@@ -107,26 +136,11 @@ object LocationUtils {
         if (stops.isEmpty()) return emptySet()
 
         val sortedStops = stops.sortedBy { it.order }
+        val nextStop = findNextStop(busLat, busLon, stops) ?: return emptySet()
 
-        val closestStop = sortedStops.minByOrNull { stop ->
-            haversineKm(busLat, busLon, stop.latitude, stop.longitude)
-        } ?: return emptySet()
-
-        val closestDistance = haversineKm(
-            busLat, busLon,
-            closestStop.latitude, closestStop.longitude
-        )
-
-        // If bus is very close to the closest stop (<150m), that stop and all before it are passed
-        val passedOrder = if (closestDistance < 0.15) {
-            closestStop.order
-        } else {
-            // Bus is between stops — everything before the closest stop is passed
-            closestStop.order - 1
-        }
-
+        // Everything with order < nextStop.order is passed
         return sortedStops
-            .filter { it.order <= passedOrder }
+            .filter { it.order < nextStop.order }
             .map { it.stopId }
             .toSet()
     }

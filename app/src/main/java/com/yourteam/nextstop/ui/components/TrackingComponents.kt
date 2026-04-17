@@ -39,6 +39,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.shape.CircleShape
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsNone
@@ -46,6 +50,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.material3.SheetValue
+import com.yourteam.nextstop.util.DirectionsFetcher
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -267,12 +272,69 @@ fun SharedTrackerScreen(
                             )
                         }
                     }
+                } // Closes else block
+
+                // NEW: Divider + Scrollable Stop List
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                
+                val orderedStops = remember(routeStops) { routeStops.sortedBy { it.order } }
+                
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(orderedStops) { stop ->
+                        val isPassed = passedStopIds.contains(stop.stopId)
+                        val isNext = stop.stopName == nextStopName
+                        
+                        val stopEtaMinutes = if (!isPassed && busLocation != null) {
+                            LocationUtils.calculateEtaMinutes(
+                                busLat = busLocation.latitude, busLon = busLocation.longitude,
+                                stopLat = stop.latitude, stopLon = stop.longitude,
+                                speedKmh = busLocation.speed * 3.6f
+                            )
+                        } else null
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isPassed) Icons.Default.CheckCircle else Icons.Default.FiberManualRecord,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = when {
+                                    isNext -> MaterialTheme.colorScheme.primary
+                                    isPassed -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = stop.stopName,
+                                style = if (isNext) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isPassed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            
+                            if (isNext && locationFreshness !is LocationFreshness.Unavailable) {
+                                Text("Next", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            } else if (!isPassed && stopEtaMinutes != null && stopEtaMinutes > 0) {
+                                val stopEtaText = formatEta(stopEtaMinutes)
+                                val shortText = if (stopEtaText == "Bus is far away") "Far" else stopEtaText
+                                Text(shortText, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
                 }
             }
         },
         modifier = modifier
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             BusTrackingMap(
                 routeStops = routeStops,
                 busLocation = busLocation,
@@ -282,6 +344,52 @@ fun SharedTrackerScreen(
                 cameraPositionState = cameraPositionState,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Route Details Header
+            if (routeStops.isNotEmpty()) {
+                val orderedStops = routeStops.sortedBy { it.order }
+                val startStop = orderedStops.first().stopName
+                val endStop = orderedStops.last().stopName
+                
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 16.dp, top = 16.dp, end = 120.dp) // Avoid live chip
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = startStop,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            modifier = Modifier.padding(horizontal = 4.dp).size(16.dp),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                        Text(
+                            text = endStop,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                }
+            }
 
             // Animated Connection Status Chip
             val chipColor = if (locationFreshness is LocationFreshness.Fresh) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
@@ -404,51 +512,70 @@ fun BusTrackingMap(
         if (routeStops.isNotEmpty()) {
             val orderedStops = routeStops.sortedBy { it.order }
             
-            // Determine split index for polylines using nextStopName mapping
-            val nextStopIndex = orderedStops.indexOfFirst { it.stopName == nextStopName }.takeIf { it != -1 } ?: orderedStops.size
-
-            val passedStops = orderedStops.take(nextStopIndex)
-            val upcomingStops = orderedStops.drop(nextStopIndex)
-
-            // Include current bus location in paths so it bridges natively
-            val passedPath = mutableListOf<LatLng>()
-            passedPath.addAll(passedStops.map { LatLng(it.latitude, it.longitude) })
-            if (busLocation != null) passedPath.add(LatLng(busLocation.latitude, busLocation.longitude))
-
-            val upcomingPath = mutableListOf<LatLng>()
-            if (busLocation != null) upcomingPath.add(LatLng(busLocation.latitude, busLocation.longitude))
-            upcomingPath.addAll(upcomingStops.map { LatLng(it.latitude, it.longitude) })
-
-            // Draw Passed Route (Gray)
-            if (passedPath.size > 1) {
-                Polyline(
-                    points = passedPath,
-                    color = Color.Gray.copy(alpha = 0.5f),
-                    width = 8f
-                )
+            // State to hold the snapped polyline path
+            var snappedPath by remember { mutableStateOf<List<LatLng>>(emptyList()) }
+            
+            // Fetch directions async when stops change
+            LaunchedEffect(orderedStops) {
+                if (orderedStops.size >= 2) {
+                    val latLngs = orderedStops.map { LatLng(it.latitude, it.longitude) }
+                    snappedPath = DirectionsFetcher.getDirections(latLngs)
+                }
             }
 
-            // Draw Upcoming Route (Primary Color)
-            if (upcomingPath.size > 1) {
+            // Draw single full snapped Route (Primary Color)
+            if (snappedPath.isNotEmpty()) {
                 Polyline(
-                    points = upcomingPath,
+                    points = snappedPath,
                     color = MaterialTheme.colorScheme.primary,
-                    width = 10f
+                    width = 12f // Slightly thicker for a premium feel
                 )
+            } else {
+                // Fallback to straight lines if API fails or is loading
+                val fallbackPath = orderedStops.map { LatLng(it.latitude, it.longitude) }
+                if (fallbackPath.size > 1) {
+                    Polyline(
+                        points = fallbackPath,
+                        color = Color.Gray.copy(alpha = 0.5f),
+                        width = 8f
+                    )
+                }
             }
         }
 
         // Draw Stop Pins
+        val orderedForMarkers = routeStops.sortedBy { it.order }
+        val lastStopOrder = orderedForMarkers.lastOrNull()?.order ?: -1
+        
         routeStops.forEach { stop ->
-            val isEndpoint = stop.stopId.startsWith("endpoint_")
+            val isLast = stop.order == lastStopOrder
+            val isCollege = stop.stopName.contains("SDMCET", ignoreCase = true) ||
+                            stop.stopName.contains("College", ignoreCase = true)
+            
+            val markerIcon = when {
+                isCollege -> remember(context) {
+                    LocationUtils.bitmapDescriptorFromVector(context, R.drawable.ic_college_marker)
+                }
+                isLast -> null // Will use default green marker below
+                else -> null // Will use default red marker below
+            }
+            
             Marker(
                 state = MarkerState(
                     position = LatLng(stop.latitude, stop.longitude)
                 ),
-                title = if (isEndpoint) "Final Destination: ${stop.stopName}" else stop.stopName,
-                snippet = if (isEndpoint) "Drop off point" else "Stop #${stop.order}",
-                icon = BitmapDescriptorFactory.defaultMarker(
-                    if (isEndpoint) BitmapDescriptorFactory.HUE_GREEN else BitmapDescriptorFactory.HUE_RED
+                title = when {
+                    isCollege -> "🏫 ${stop.stopName}"
+                    isLast -> "Final Destination: ${stop.stopName}"
+                    else -> stop.stopName
+                },
+                snippet = when {
+                    isCollege -> "College Campus"
+                    isLast -> "Drop off point"
+                    else -> "Stop #${stop.order}"
+                },
+                icon = markerIcon ?: BitmapDescriptorFactory.defaultMarker(
+                    if (isLast) BitmapDescriptorFactory.HUE_GREEN else BitmapDescriptorFactory.HUE_RED
                 )
             )
         }
@@ -460,14 +587,21 @@ fun BusTrackingMap(
             }
             
             val busAlpha = if (locationFreshness is LocationFreshness.Unavailable || !isBusActive) 0.5f else 1.0f
+            val busMarkerState = rememberMarkerState(
+                position = LatLng(busLocation.latitude, busLocation.longitude)
+            )
+            
+            // Update position reactively when busLocation changes
+            LaunchedEffect(busLocation.latitude, busLocation.longitude) {
+                busMarkerState.position = LatLng(busLocation.latitude, busLocation.longitude)
+            }
+            
             Marker(
-                state = MarkerState(
-                    position = LatLng(busLocation.latitude, busLocation.longitude)
-                ),
+                state = busMarkerState,
                 title = "Bus Location",
                 snippet = "Speed: ${"%.1f".format(busLocation.speed * 3.6f)} km/h",
                 icon = customBusIcon ?: BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE),
-                anchor = androidx.compose.ui.geometry.Offset(0.5f, 0.5f), // Center the bus icon natively
+                anchor = androidx.compose.ui.geometry.Offset(0.5f, 0.5f),
                 alpha = busAlpha
             )
         }

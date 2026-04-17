@@ -12,28 +12,45 @@ import java.util.UUID
 
 object HackathonSeeder {
     suspend fun seedDatabase(firestore: FirebaseFirestore) {
-        val sdmcetLat = 15.421
-        val sdmcetLng = 75.023
+        val sdmcetLat = 15.4210
+        val sdmcetLng = 75.0230
+        val sdmcet = Triple("SDMCET", sdmcetLat, sdmcetLng)
 
-        // Generating 10 mock drivers and 10 buses mapped to Hubballi-Dharwad Twin Cities
-        val mainNodes = listOf(
-            Pair("New Bus Stand Hubli", Pair(15.362, 75.143)),
-            Pair("Navanagar", Pair(15.394, 75.088)),
-            Pair("Rayapur", Pair(15.405, 75.068)),
-            Pair("SDMCET", Pair(sdmcetLat, sdmcetLng)),
-            Pair("KCD Circle", Pair(15.441, 75.011)),
-            Pair("Toll Naka", Pair(15.448, 75.021)),
-            Pair("Jubilee Circle", Pair(15.452, 75.008)),
-            Pair("Kittur Rani Channamma Circle", Pair(15.353, 75.138)),
-            Pair("Unkal Lake", Pair(15.372, 75.127)),
-            Pair("Vidyanagar", Pair(15.366, 75.130))
+        // 4 corridors — each is a straight-line path converging on SDMCET
+        // Stops are ordered from farthest to nearest, then SDMCET at the end
+
+        val corridors = listOf(
+            // Route 1: Hubli City Center → SDMCET  (SE → NW)
+            listOf(
+                Triple("Keshwapur", 15.3580, 75.1320),
+                Triple("Vidyanagar", 15.3750, 75.0950),
+                Triple("Navanagar", 15.3950, 75.0600)
+            ),
+            // Route 2: Dharwad → SDMCET  (NE → SW)
+            listOf(
+                Triple("Jubilee Circle", 15.4580, 75.0060),
+                Triple("Toll Naka", 15.4450, 75.0130),
+                Triple("KCD Circle", 15.4350, 75.0180)
+            ),
+            // Route 3: Old Hubli → SDMCET  (S → NW)
+            listOf(
+                Triple("Old Hubli", 15.3480, 75.1420),
+                Triple("Unkal Lake", 15.3720, 75.1000),
+                Triple("Amargol", 15.3980, 75.0580)
+            ),
+            // Route 4: Gokul Road → SDMCET  (SW → N)
+            listOf(
+                Triple("Gokul Road", 15.3420, 75.1020),
+                Triple("Rayapur", 15.3800, 75.0680),
+                Triple("Tarihal", 15.4050, 75.0400)
+            )
         )
 
-        for (i in 1..10) {
+        for (i in 1..4) {
             val driverId = "mock_driver_$i"
             val busId = "bus_$i"
-            
-            // Create user
+
+            // Create driver user
             val driverUser = User(
                 uid = driverId,
                 email = "driver$i@sdmcet.edu.in",
@@ -45,16 +62,21 @@ object HackathonSeeder {
             // Create bus
             val bus = Bus(
                 busId = busId,
-                busNumber = "KA-25-A-10${if(i < 10) "0$i" else i}"
+                busNumber = "KA-25-A-100$i"
             )
             firestore.collection("buses").document(busId).set(bus).await()
 
-            // Shuffle nodes to create random valid routes
-            val routeNodes = mainNodes.shuffled().take(4)
-            
-            // TO_COLLEGE ROUTE
-            val toCollegeStops = (routeNodes.dropLast(1) + Pair("SDMCET", Pair(sdmcetLat, sdmcetLng))).mapIndexed { idx, pair ->
-                Stop(stopId = UUID.randomUUID().toString(), stopName = pair.first, latitude = pair.second.first, longitude = pair.second.second, order = idx)
+            val corridor = corridors[i - 1]
+
+            // TO_COLLEGE: farthest stop → mid → nearest → SDMCET
+            val toCollegeStops = (corridor + sdmcet).mapIndexed { idx, node ->
+                Stop(
+                    stopId = UUID.randomUUID().toString(),
+                    stopName = node.first,
+                    latitude = node.second,
+                    longitude = node.third,
+                    order = idx
+                )
             }
             val toCollegeRoute = Route(
                 routeId = "route_to_college_$i",
@@ -71,9 +93,15 @@ object HackathonSeeder {
             )
             firestore.collection("routes").document(toCollegeRoute.routeId).set(toCollegeRoute).await()
 
-            // FROM_COLLEGE ROUTE
-            val fromCollegeStops = (listOf(Pair("SDMCET", Pair(sdmcetLat, sdmcetLng))) + routeNodes.drop(1)).mapIndexed { idx, pair ->
-                Stop(stopId = UUID.randomUUID().toString(), stopName = pair.first, latitude = pair.second.first, longitude = pair.second.second, order = idx)
+            // FROM_COLLEGE: SDMCET → nearest → mid → farthest
+            val fromCollegeStops = (listOf(sdmcet) + corridor.reversed()).mapIndexed { idx, node ->
+                Stop(
+                    stopId = UUID.randomUUID().toString(),
+                    stopName = node.first,
+                    latitude = node.second,
+                    longitude = node.third,
+                    order = idx
+                )
             }
             val fromCollegeRoute = Route(
                 routeId = "route_to_home_$i",
@@ -93,18 +121,28 @@ object HackathonSeeder {
     }
 
     suspend fun unseedDatabase(firestore: FirebaseFirestore) {
-        for (i in 1..10) {
+        for (i in 1..4) {
             val driverId = "mock_driver_$i"
             val busId = "bus_$i"
             val toCollegeRouteId = "route_to_college_$i"
             val toHomeRouteId = "route_to_home_$i"
-            
+
             firestore.collection("users").document(driverId).delete().await()
             firestore.collection("buses").document(busId).delete().await()
             firestore.collection("routes").document(toCollegeRouteId).delete().await()
             firestore.collection("routes").document(toHomeRouteId).delete().await()
-            // Legacy clean up for tests that might have run before rename
+            // Legacy cleanup
             firestore.collection("routes").document("route_from_college_$i").delete().await()
+        }
+        // Clean up old mock data (5-10) from previous seeds
+        for (i in 5..10) {
+            try {
+                firestore.collection("users").document("mock_driver_$i").delete().await()
+                firestore.collection("buses").document("bus_$i").delete().await()
+                firestore.collection("routes").document("route_to_college_$i").delete().await()
+                firestore.collection("routes").document("route_to_home_$i").delete().await()
+                firestore.collection("routes").document("route_from_college_$i").delete().await()
+            } catch (_: Exception) { /* ignore if they don't exist */ }
         }
     }
 }

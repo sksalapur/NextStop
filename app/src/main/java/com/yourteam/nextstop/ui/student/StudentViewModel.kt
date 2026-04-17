@@ -158,21 +158,32 @@ class StudentViewModel @Inject constructor(
 
         activeRoutes.mapNotNull { route ->
             val bus = busList.find { it.busId == route.busId } ?: return@mapNotNull null
+            val loc = locs[route.busId]
             
-            val loc = locs[route.routeId]
-            val isLive = loc?.active == true
+            // Re-apply the same direction match logic as updateTrackingState
+            val directionMatch = loc?.direction.isNullOrEmpty() || 
+                                 route.direction.isNullOrEmpty() || 
+                                 loc?.direction == route.direction
+            val isLive = loc?.active == true && directionMatch
 
             var eta = -1
-            if (isLive) {
+            if (isLive && loc != null) {
                 // Determine ETA to the homeStop if applicable
                 val hStop = route.stops.find { it.stopName == homeStopObj.stopName }
                 if (hStop != null) {
-                    val speedKmh = loc.speed * 3.6f
-                    eta = LocationUtils.calculateEtaMinutes(
-                        busLat = loc.latitude, busLon = loc.longitude,
-                        stopLat = hStop.latitude, stopLon = hStop.longitude,
-                        speedKmh = speedKmh
+                    val passedIds = com.yourteam.nextstop.util.LocationUtils.getPassedStopIds(
+                        loc.latitude, loc.longitude, route.stops
                     )
+                    if (passedIds.contains(hStop.stopId)) {
+                        eta = -2 // Let's use -2 to indicate "Arrived/Passed"
+                    } else {
+                        val speedKmh = loc.speed * 3.6f
+                        eta = com.yourteam.nextstop.util.LocationUtils.calculateEtaMinutes(
+                            busLat = loc.latitude, busLon = loc.longitude,
+                            stopLat = hStop.latitude, stopLon = hStop.longitude,
+                            speedKmh = speedKmh
+                        )
+                    }
                 }
             }
 
@@ -227,7 +238,7 @@ class StudentViewModel @Inject constructor(
         viewModelScope.launch {
             liveLocations.collectLatest { locations ->
                 val route = _selectedRoute.value ?: return@collectLatest
-                val location = locations[route.routeId]
+                val location = locations[route.busId]
                 updateTrackingState(location)
             }
         }
@@ -277,7 +288,11 @@ class StudentViewModel @Inject constructor(
             ))
         }
 
-        _routeStops.value = rawStops.map { stop ->
+        // Deduplicate by stop name — keep the first occurrence (lower order) to prevent
+        // the last stop appearing twice when the seeder already includes the destination
+        val deduped = rawStops.distinctBy { it.stopName }
+
+        _routeStops.value = deduped.map { stop ->
             if (stop.stopId.isEmpty()) stop.copy(stopId = "temp_${stop.stopName}") else stop
         }
     }
@@ -294,16 +309,24 @@ class StudentViewModel @Inject constructor(
             _passedStopIds.value = emptySet()
         } else {
             loadRouteStops(route)
-            val location = liveLocations.value[route.routeId]
+            val location = liveLocations.value[route.busId]
             updateTrackingState(location)
         }
     }
 
     private fun updateTrackingState(location: LiveLocation?) {
         _busLocation.value = location
-        _isBusActive.value = location?.active == true
+        
+        // Check direction mismatch: if the bus is running the opposite direction,
+        // treat it as inactive for the route being viewed
+        val route = _selectedRoute.value
+        val directionMatch = location?.direction.isNullOrEmpty() || 
+                             route?.direction.isNullOrEmpty() ||
+                             location?.direction == route?.direction
+        
+        _isBusActive.value = location?.active == true && directionMatch
 
-        if (location != null && location.active) {
+        if (location != null && location.active && directionMatch) {
             val stops = _routeStops.value
             if (stops.isEmpty()) return
 

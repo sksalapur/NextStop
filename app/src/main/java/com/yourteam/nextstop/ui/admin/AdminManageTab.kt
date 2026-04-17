@@ -97,41 +97,161 @@ fun AdminManageTab(viewModel: AdminViewModel) {
             }
 
             // Derive seed state from actual data — if "bus_1" exists, data is seeded
+            // Derive seed state from actual data — if "bus_1" exists, data is seeded
             val seedEnabled = buses.any { it.busId == "bus_1" }
+            var showSimulationToolsDialog by remember { mutableStateOf(false) }
 
-            // Hackathon Developer Card
-            Card(
+            // Simulation Tools Button
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.End
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                OutlinedButton(
+                    onClick = { showSimulationToolsDialog = true },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "Mock Data", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(
-                        checked = seedEnabled,
-                        onCheckedChange = { newValue ->
-                            if (newValue) {
-                                viewModel.seedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
-                            } else {
-                                viewModel.unseedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    )
+                    Text("Simulation Tools")
                 }
+            }
+
+            if (showSimulationToolsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSimulationToolsDialog = false },
+                    title = { Text("Simulation Tools", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Hackathon Developer Card
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = "Mock Data", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(
+                                        checked = seedEnabled,
+                                        onCheckedChange = { newValue ->
+                                            if (newValue) {
+                                                viewModel.seedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                                            } else {
+                                                viewModel.unseedHackathonData { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                                            }
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    )
+                                }
+                            }
+                            
+                            val isToCollegeRunning by viewModel.isToCollegeRunning.collectAsState()
+                            val isFromCollegeRunning by viewModel.isFromCollegeRunning.collectAsState()
+                            
+                            if (seedEnabled) {
+                                // To College Simulator Card
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = "To College", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                                Text(text = "Buses converge to SDMCET", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        FilledTonalButton(
+                                            onClick = {
+                                                if (isToCollegeRunning) {
+                                                    viewModel.stopSimulation("to_college")
+                                                    scope.launch { snackbarHostState.showSnackbar("To College stopped") }
+                                                } else {
+                                                    viewModel.startSimulation("to_college")
+                                                    scope.launch { snackbarHostState.showSnackbar("To College started!") }
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.filledTonalButtonColors(
+                                                containerColor = if (isToCollegeRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
+                                                contentColor = if (isToCollegeRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimary
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isToCollegeRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (isToCollegeRunning) "Stop" else "Play")
+                                        }
+                                    }
+                                }
+                                
+                                // From College Simulator Card
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = "From College", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                Text(text = "Buses fan out from SDMCET", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        FilledTonalButton(
+                                            onClick = {
+                                                if (isFromCollegeRunning) {
+                                                    viewModel.stopSimulation("from_college")
+                                                    scope.launch { snackbarHostState.showSnackbar("From College stopped") }
+                                                } else {
+                                                    viewModel.startSimulation("from_college")
+                                                    scope.launch { snackbarHostState.showSnackbar("From College started!") }
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.filledTonalButtonColors(
+                                                containerColor = if (isFromCollegeRunning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
+                                                contentColor = if (isFromCollegeRunning) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimary
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isFromCollegeRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (isFromCollegeRunning) "Stop" else "Play")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showSimulationToolsDialog = false }) {
+                            Text("Done")
+                        }
+                    }
+                )
             }
 
             TabRow(selectedTabIndex = selectedTabIndex) {

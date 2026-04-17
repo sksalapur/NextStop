@@ -135,7 +135,7 @@ fun AdminDashboardTab(
             items(fromCollege, key = { it.routeId }) { route ->
                 val bus = buses.find { it.busId == route.busId }
                 val driverName = drivers.find { it.uid == route.assignedDriverId }?.name ?: "Unassigned"
-                val liveLocation = liveLocations[route.routeId]
+                val liveLocation = liveLocations[route.busId]
 
                 RouteStatusCard(
                     route = route,
@@ -160,7 +160,7 @@ fun AdminDashboardTab(
             items(toCollege, key = { it.routeId }) { route ->
                 val bus = buses.find { it.busId == route.busId }
                 val driverName = drivers.find { it.uid == route.assignedDriverId }?.name ?: "Unassigned"
-                val liveLocation = liveLocations[route.routeId]
+                val liveLocation = liveLocations[route.busId]
 
                 RouteStatusCard(
                     route = route,

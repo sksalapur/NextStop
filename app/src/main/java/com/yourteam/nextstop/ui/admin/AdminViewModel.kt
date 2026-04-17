@@ -285,10 +285,30 @@ class AdminViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 HackathonSeeder.unseedDatabase(firestore)
+                com.yourteam.nextstop.utils.MockLocationSimulator.stopAll(routes.value)
                 onResult("Mock database completely deleted.")
             } catch (e: Exception) {
                 onResult("Unseeding failed: ${e.message}")
             }
         }
+    }
+    
+    val isSimulationRunning = com.yourteam.nextstop.utils.MockLocationSimulator.isRunning
+    val isToCollegeRunning = com.yourteam.nextstop.utils.MockLocationSimulator.isToCollegeRunning
+    val isFromCollegeRunning = com.yourteam.nextstop.utils.MockLocationSimulator.isFromCollegeRunning
+    
+    fun startSimulation(direction: String) {
+        val currentRoutes = routes.value
+        com.yourteam.nextstop.utils.MockLocationSimulator.startSimulation(currentRoutes, direction)
+    }
+    
+    fun stopSimulation(direction: String) {
+        val currentRoutes = routes.value
+        com.yourteam.nextstop.utils.MockLocationSimulator.stopSimulation(currentRoutes, direction)
+    }
+    
+    fun stopAllSimulations() {
+        val currentRoutes = routes.value
+        com.yourteam.nextstop.utils.MockLocationSimulator.stopAll(currentRoutes)
     }
 }

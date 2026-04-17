@@ -10,5 +10,6 @@ data class LiveLocation(
     val speed: Float = 0f,
     val bearing: Float = 0f,
     val timestamp: Long = 0L,
-    val active: Boolean = false
+    val active: Boolean = false,
+    val direction: String = "" // "to_college" or "from_college"
 )

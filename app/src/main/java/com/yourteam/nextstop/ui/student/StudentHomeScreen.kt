@@ -303,11 +303,12 @@ fun StudentFleetDashboard(
                     val rawEta = com.yourteam.nextstop.ui.utils.formatEta(busData.etaMinutes)
                     when (rawEta) {
                         "Calculating..." -> "Calculating..."
+                        "Arrived/Passed" -> "Bus has already passed ${homeStop!!.stopName}"
                         "Bus is far away" -> "Bus is far away"
                         else -> "Arrives at ${homeStop!!.stopName} in $rawEta"
                     }
                 }
-                val etaColor = if (isOffRoute || etaText == "Bus is far away") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                val etaColor = if (isOffRoute || etaText == "Bus is far away" || etaText.contains("passed")) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
                 
                 RouteTrackingCard(
                     route = busData.route,
